@@ -49,6 +49,4 @@ async function enviarOfertasAprobadas() {
         console.error("❌ Error de publicación:", error.message);
     }
 }
-
-cron.schedule('5 * * * *', enviarOfertasAprobadas); 
-enviarOfertasAprobadas();
+module.exports = { enviarOfertasAprobadas };

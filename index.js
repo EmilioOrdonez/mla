@@ -58,5 +58,4 @@ async function runScraper() {
         console.error("❌ Error en el scraper:", error.message);
     }
 }
-
-runScraper();
+module.exports = { runScraper };
