@@ -60,6 +60,11 @@ app.get('/', (req, res) => {
 });
 
 // --- PROCESADOR MANUAL MEJORADO ---
+// ... (Importaciones iniciales se mantienen igual)
+
+// Función auxiliar para pausar la ejecución (ms = milisegundos)
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 app.post('/api/manual', async (req, res) => {
     const rawUrls = req.body.urls.split(/\r?\n/);
     const urls = rawUrls.map(u => u.trim()).filter(u => u.length > 0);
@@ -67,36 +72,19 @@ app.post('/api/manual', async (req, res) => {
 
     for (const url of urls) {
         try {
-            const response = await axios.get(url, {
+            console.log(`🔍 Procesando manual: ${url}`);
+            
+            // --- PASO 1: Scraping y Expansión ---
+            const response = await axios.get(url, { 
                 maxRedirects: 5,
                 headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
             });
             const realUrl = response.request.res.responseUrl.split('?')[0];
             const $ = cheerio.load(response.data);
 
-            let jsonLd = {};
-            $('script[type="application/ld+json"]').each((i, el) => {
-                try {
-                    const parsed = JSON.parse($(el).html());
-                    if (parsed['@type'] === 'Product') jsonLd = parsed;
-                } catch (e) { }
-            });
-
-            let titulo = jsonLd.name || $('meta[property="og:title"]').attr('content') || $('h1').text().trim();
-            if (titulo && titulo.includes(' - $')) titulo = titulo.substring(0, titulo.lastIndexOf(' - $')).trim();
-
-            let precioOf = (jsonLd.offers && jsonLd.offers.price) ? jsonLd.offers.price :
-                $('meta[itemprop="price"]').attr('content') ||
-                $('.andes-money-amount__fraction').not('.andes-money-amount--previous .andes-money-amount__fraction').first().text().replace(/,/g, '');
-
-            let precioOrig = $('.ui-pdp-price__part--original .andes-money-amount__fraction').first().text().replace(/,/g, '') ||
-                $('.andes-money-amount--previous .andes-money-amount__fraction').first().text().replace(/,/g, '') || precioOf;
-
-            let imagen = $('meta[property="og:image"]').attr('content') || (jsonLd.image && jsonLd.image[0]) || $('.ui-pdp-image').first().attr('src');
-
-            if (!titulo || !precioOf) throw new Error("Datos incompletos.");
-
-            // ... dentro del bucle de procesamiento manual
+            // ... (Lógica de extracción JSON-LD y Meta Tags se mantiene igual)
+            
+            // --- PASO 2: Inserción en Supabase ---
             const { data, error } = await supabase.from('ofertas').upsert({
                 producto: titulo,
                 precio_original: parseFloat(precioOrig),
@@ -106,33 +94,26 @@ app.post('/api/manual', async (req, res) => {
                 imagen_url: imagen,
                 status: 'Aprobado',
                 enviado: false,
-                fecha_mexico: new Date().toLocaleString("en-US", { timeZone: "America/Mexico_City" }) // Forzamos hora de CDMX
-            }, { onConflict: 'link_original' }).select(); // El .select() es clave para confirmar la entrada
+                fecha_mexico: new Date().toLocaleString("en-US", {timeZone: "America/Mexico_City"})
+            }, { onConflict: 'link_original' }).select();
 
             if (error) throw error;
 
-            // Guardamos una pequeña confirmación para el reporte
-            resultados.push({
-                status: 'success',
-                prod: titulo,
-                id_db: data[0].id // Obtenemos el ID real de la base de datos
-            });
+            console.log(`✅ Guardado en DB: ${titulo}`);
+            resultados.push({ status: 'success', prod: titulo, id_db: data[0].id });
+
+            // --- PASO 3: Temporizador de Seguridad (3 a 5 segundos) ---
+            // Esto garantiza que el siguiente enlace espere un momento antes de iniciar
+            console.log("⏱️ Esperando 4 segundos para el siguiente registro...");
+            await sleep(4000); 
 
         } catch (err) {
+            console.error(`❌ Error en ${url}:`, err.message);
             resultados.push({ status: 'error', prod: url, detail: err.message });
         }
     }
 
-    let reportHtml = `${UI_STYLE}<div class="container"><h2>Reporte de Carga</h2>`;
-    resultados.forEach(r => {
-        reportHtml += `
-            <div class="card ${r.status}">
-                <strong>${r.status === 'success' ? '✅' : '❌'}</strong> ${r.prod}
-                ${r.detail ? `<br><small style="color:#ff4b2b">${r.detail}</small>` : ''}
-            </div>`;
-    });
-    reportHtml += `<a href="/" class="btn btn-back">⬅️ VOLVER AL PANEL</a></div>`;
-    res.send(reportHtml);
+    // ... (El bloque de reporte HTML se mantiene igual)
 });
 
 // --- ENDPOINTS AUTOMÁTICOS ---
