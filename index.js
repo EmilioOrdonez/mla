@@ -14,15 +14,13 @@ async function acortarLink(urlLarga) {
     } catch (e) { return urlLarga; }
 }
 
-// 🧠 CEREBRO DE MARKETING CON IA (VERSIÓN 2.5 FLASH)
 async function generarMarketingIA(titulo) {
     try {
-        // Actualizado al modelo vigente
         const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
         const prompt = `Eres un copywriter experto. Analiza este producto: "${titulo}". Genera:
-        1. Una frase persuasiva y corta (máximo 12 palabras) que incite a comprar, resaltando el valor. Usa 1 emoji.
-        2. Tres hashtags relevantes en formato #CamelCase.
-        Devuelve ÚNICAMENTE un JSON con formato: {"frase": "frase aquí", "hashtags": "#Tag1 #Tag2 #Tag3"}`;
+        1. Una frase persuasiva y corta con 1 emoji.
+        2. Tres hashtags relevantes en #CamelCase.
+        Devuelve ÚNICAMENTE JSON: {"frase": "frase aquí", "hashtags": "#Tag1 #Tag2 #Tag3"}`;
         
         const result = await model.generateContent(prompt);
         const jsonString = result.response.text().replace(/```(json)?/gi, '').trim();
@@ -41,23 +39,26 @@ async function runScraper() {
         const $ = cheerio.load(resp.data);
         const links = [];
 
-        $('.promotion-item__link-container').each((i, el) => {
+        $('.promotion-item__link-container, .poly-component__title, a.ui-search-link, a[href*="/MLM"]').each((i, el) => {
             const link = $(el).attr('href');
-            if(link) links.push(link);
+            if(link && !links.includes(link) && link.startsWith('http')) links.push(link);
         });
 
         for(const url of links.slice(0, 5)) {
             try {
-                const pResp = await axios.get(url, { maxRedirects: 5 });
+                const pResp = await axios.get(url, { maxRedirects: 5, headers: { 'User-Agent': 'Mozilla/5.0' } });
                 let realUrl = pResp.request.res.responseUrl;
-                const mlidMatch = realUrl.match(/MLM-?(\d+)/i);
-                const uniqueId = mlidMatch ? mlidMatch[0].toUpperCase() : `AUTO-${Date.now()}`;
-                const $$ = cheerio.load(pResp.data);
+                
+                // 🛠️ LÓGICA CORREGIDA: link_original ahora guarda la URL limpia (sin ?)
+                const linkOriginalLimpio = realUrl.split('?')[0];
 
+                const $$ = cheerio.load(pResp.data);
                 let titulo = $$('meta[property="og:title"]').attr('content');
                 let precio = $$('.andes-money-amount__fraction').first().text().replace(/,/g, '');
 
-                const linkLargo = `${realUrl.split('?')[0]}?matt_tool=${process.env.ML_MATT_TOOL}&matt_word=${process.env.ML_MATT_WORD}`;
+                if (!titulo || !precio) continue;
+
+                const linkLargo = `${linkOriginalLimpio}?matt_tool=${process.env.ML_MATT_TOOL}&matt_word=${process.env.ML_MATT_WORD}`;
                 
                 const [linkCorto, marketingData] = await Promise.all([
                     acortarLink(linkLargo),
@@ -68,7 +69,7 @@ async function runScraper() {
                     producto: titulo, 
                     precio_oferta: parseFloat(precio),
                     precio_original: parseFloat(precio), 
-                    link_original: uniqueId, 
+                    link_original: linkOriginalLimpio, // 👈 URL limpia
                     link_afiliado: linkLargo, 
                     link_corto: linkCorto,
                     hashtags: marketingData.hashtags,
@@ -80,9 +81,9 @@ async function runScraper() {
                     fecha_mexico: new Date().toLocaleString("en-US", {timeZone: "America/Mexico_City"})
                 }, { onConflict: 'link_original' });
 
-                console.log(`✅ Guardado IA: ${titulo}`);
-                await new Promise(r => setTimeout(r, 4000));
-            } catch (e) { console.error("Error procesando link individual"); }
+                console.log(`✅ Guardado IA Automático: ${titulo}`);
+                await new Promise(r => setTimeout(r, 4500));
+            } catch (e) { console.error("Error procesando link"); }
         }
     } catch (e) { console.error("Error en scraper"); }
 }

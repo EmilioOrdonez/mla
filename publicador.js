@@ -35,16 +35,15 @@ async function enviarOfertasAprobadas() {
                 const tagsSeguros = escapeHTML(record.hashtags || "#Ofertas #GenesysDigital");
 
                 // 🛡️ VALIDACIÓN DE IMAGEN ESTRICTA
-                // Si ML no dio imagen, usamos una de respaldo profesional para evitar el Error 400
                 const fotoSegura = (record.imagen_url && record.imagen_url.startsWith('http')) 
                     ? record.imagen_url 
                     : "https://via.placeholder.com/800x450/1a1a2e/00d2ff.png?text=Oferta+Genesys+Digital";
 
-                // --- 📝 TELEGRAM (Ahora usa sintaxis HTML, 100% a prueba de errores) ---
-                const mensajeTG = `${tagTG}\n✨ <i>${fraseSegura}</i>\n\n📦 <b>${tituloSeguro}</b>\n\n❌ Antes: <s>${pOrig}</s>\n✅ <b>Hoy solo: ${pOf}</b>\n\n🛒 <b>COMPRA AQUÍ:</b> ${linkFinal}\n\n—\n📢 <b>Genesys Digital</b> | ${tagsSeguros}`;
+                // --- 📝 TELEGRAM (Sintaxis HTML) ---
+                const mensajeTG = `${tagTG}\n✨ <i>${fraseSegura}</i>\n\n📦 <b>${tituloSeguro}</b>\n\n❌ Antes: <s>${pOrig}</s>\n✅ <b>Hoy solo: ${pOf}</b>\n\n🛒 <b>COMPRA AQUÍ:</b> ${linkFinal}\n\n🎁 <b>Más ofertas recomendadas:</b> https://meli.la/1oWVfrg\n\n—\n📢 <b>Genesys Digital</b> | ${tagsSeguros}`;
 
                 // --- 📝 FACEBOOK ---
-                const mensajeFB = `${tagFB}\n✨ ${record.frase_persuasiva}\n\n🔥 ${record.producto}\n\n💰 Precio: ${pOf} (Antes: ${pOrig})\n🛒 Cómpralo aquí: ${linkFinal}\n\n✨ Únete a nuestro canal VIP para más exclusivas:\n👉 https://t.me/ofertas_mercado_libre_mexico\n\n${record.hashtags} #MercadoLibre`;
+                const mensajeFB = `${tagFB}\n✨ ${record.frase_persuasiva}\n\n🔥 ${record.producto}\n\n💰 Precio: ${pOf} (Antes: ${pOrig})\n🛒 Cómpralo aquí: ${linkFinal}\n\n🎁 Más ofertas recomendadas: https://meli.la/1oWVfrg\n\n✨ Únete a nuestro canal VIP para más exclusivas:\n👉 https://t.me/ofertas_mercado_libre_mexico\n\n${record.hashtags} #MercadoLibre`;
 
                 // 🚀 DISPARO 1: TELEGRAM
                 try {
@@ -52,11 +51,10 @@ async function enviarOfertasAprobadas() {
                         chat_id: process.env.TELEGRAM_CHAT_ID, 
                         photo: fotoSegura, 
                         caption: mensajeTG, 
-                        parse_mode: 'HTML' // 👈 El secreto para que Telegram no rechace el texto
+                        parse_mode: 'HTML'
                     });
                     console.log(`✅ [Telegram] Publicado: ${record.producto}`);
                 } catch (eTG) {
-                    // Si falla, imprimimos el motivo real del rechazo
                     console.error("❌ Telegram rechazó el post:", eTG.response?.data?.description || eTG.message);
                 }
 
@@ -72,7 +70,7 @@ async function enviarOfertasAprobadas() {
                     console.error("❌ Facebook rechazó el post:", eFB.response?.data?.error?.message || eFB.message);
                 }
 
-                // Finalmente actualizamos la base de datos
+                // Actualizamos la base de datos
                 await supabase.from('ofertas').update({ enviado: true }).eq('id', record.id);
                 await sleep(5000);
             } catch (innerE) { 

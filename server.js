@@ -21,35 +21,27 @@ async function acortarLink(urlLarga) {
     try {
         const res = await axios.get(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(urlLarga)}`, { timeout: 10000 });
         return (res.data && res.data.startsWith('http')) ? res.data : urlLarga;
-    } catch (e) {
-        return urlLarga;
-    }
+    } catch (e) { return urlLarga; }
 }
 
-// 🧠 CEREBRO DE MARKETING CON IA (VERSIÓN 2.5 FLASH)
+// 🧠 CEREBRO DE MARKETING CON IA (GEMINI 2.5 FLASH)
 async function generarMarketingIA(titulo) {
     try {
-        // Actualizado al modelo vigente solicitado
         const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
         const prompt = `Eres un copywriter experto en comercio electrónico. Analiza este producto: "${titulo}".
         Genera:
-        1. Una frase persuasiva y corta (máximo 12 palabras) que incite a comprar inmediatamente, resaltando el valor o la utilidad. Usa 1 emoji.
-        2. Tres hashtags ultra relevantes en formato #CamelCase basados en la categoría real del producto.
-        
-        Devuelve ÚNICAMENTE un objeto JSON válido con este formato:
-        {"frase": "frase persuasiva aquí", "hashtags": "#Tag1 #Tag2 #Tag3"}`;
+        1. Una frase persuasiva y corta (máximo 12 palabras) con 1 emoji.
+        2. Tres hashtags ultra relevantes en formato #CamelCase.
+        Devuelve ÚNICAMENTE un JSON válido: {"frase": "frase aquí", "hashtags": "#Tag1 #Tag2 #Tag3"}`;
         
         const result = await model.generateContent(prompt);
-        // Limpiar el formato markdown si la IA lo agrega
         const jsonString = result.response.text().replace(/```(json)?/gi, '').trim();
         return JSON.parse(jsonString);
     } catch (e) {
-        console.error("⚠️ Error en IA:", e.message);
-        return { frase: "¡No dejes escapar esta increíble oportunidad de mejorar tu día! ⏳", hashtags: "#Oferta #Descuento #CompraInteligente" };
+        return { frase: "¡No dejes escapar esta oportunidad única! ⏳", hashtags: "#Oferta #Descuento #CompraInteligente" };
     }
 }
 
-// --- ESTILOS DEL DASHBOARD ---
 const UI_STYLE = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Genesys Digital - Admin</title><style>:root { --primary: #00d2ff; --secondary: #3a7bd5; --dark: #1a1a2e; --success: #00f2fe; --error: #ff4b2b; --warning: #f6ad55; } body { font-family: 'Segoe UI', Roboto, sans-serif; background: var(--dark); color: white; margin: 0; display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 15px; box-sizing: border-box; } .container { width: 100%; max-width: 600px; background: #16213e; padding: 25px; border-radius: 24px; box-shadow: 0 15px 35px rgba(0,0,0,0.6); border: 1px solid #0f3460; text-align: center; } h1 { color: var(--primary); margin: 0; font-weight: 700; font-size: 1.6rem; } .dashboard { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 25px 0; } .stat-box { background: #0f3460; padding: 15px 5px; border-radius: 15px; border: 1px solid #1a1a2e; } .stat-num { font-size: 1.5rem; font-weight: bold; } .stat-label { font-size: 0.6rem; text-transform: uppercase; color: #888; margin-top: 5px; } textarea { width: 100%; background: #0f3460; border: 1px solid #1a1a2e; border-radius: 15px; color: #fff; padding: 15px; box-sizing: border-box; resize: none; margin-bottom: 15px; font-size: 0.9rem; } .btn { display: inline-flex; align-items: center; justify-content: center; padding: 15px 25px; border-radius: 50px; text-decoration: none; font-weight: bold; transition: 0.3s; cursor: pointer; border: none; font-size: 0.9rem; width: 100%; box-sizing: border-box; } .btn-primary { background: linear-gradient(45deg, var(--primary), var(--secondary)); color: #fff; margin-top: 5px; } .btn-back { background: #0f3460; color: #aaa; margin-top: 15px; border: 1px solid #1a1a2e; } .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 20px; } .card { background: #1a1a2e; padding: 15px; border-radius: 15px; text-align: left; border-left: 4px solid var(--primary); margin-bottom: 10px; font-size: 0.85rem; } .spinner { display: none; width: 18px; height: 18px; border: 3px solid rgba(255,255,255,0.3); border-radius: 50%; border-top-color: #fff; animation: spin 1s infinite; margin-right: 10px; } @keyframes spin { to { transform: rotate(360deg); } } </style><script>function showLoading(){const btn=document.getElementById('btn-procesar');const txt=document.getElementById('urls-input');if(txt.value.trim()==='')return;btn.disabled=true;document.getElementById('spinner').style.display='block';document.getElementById('btn-text').innerText='Analizando con IA...';document.getElementById('form-manual').submit();}</script></head><body>`;
 const UI_FOOTER = `</body></html>`;
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -70,8 +62,9 @@ app.post('/api/manual', async (req, res) => {
         try {
             const resp = await axios.get(url, { maxRedirects: 5, headers: { 'User-Agent': 'Mozilla/5.0' } });
             let realUrl = resp.request.res.responseUrl;
-            const mlidMatch = realUrl.match(/MLM-?(\d+)/i);
-            const uniqueId = mlidMatch ? mlidMatch[0].toUpperCase() : `MANUAL-${Date.now()}`;
+            
+            // 🛠️ LÓGICA CORREGIDA: link_original ahora guarda la URL limpia (sin ?)
+            const linkOriginalLimpio = realUrl.split('?')[0];
             
             const $ = cheerio.load(resp.data);
             let titulo = $('meta[property="og:title"]').attr('content') || $('h1').text().trim();
@@ -82,11 +75,10 @@ app.post('/api/manual', async (req, res) => {
             const urlObj = new URL(realUrl);
             urlObj.searchParams.set('matt_tool', process.env.ML_MATT_TOOL);
             urlObj.searchParams.set('matt_word', process.env.ML_MATT_WORD);
-            const linkLargo = urlObj.toString();
+            const linkLargoAfiliado = urlObj.toString();
             
-            // Procesamiento Paralelo: Acortamos y llamamos a la IA al mismo tiempo
             const [linkCorto, marketingData] = await Promise.all([
-                acortarLink(linkLargo),
+                acortarLink(linkLargoAfiliado),
                 generarMarketingIA(titulo)
             ]);
 
@@ -94,11 +86,11 @@ app.post('/api/manual', async (req, res) => {
                 producto: titulo, 
                 precio_original: parseFloat(precioOrig), 
                 precio_oferta: parseFloat(precioOf),
-                link_original: uniqueId, 
-                link_afiliado: linkLargo, 
+                link_original: linkOriginalLimpio, // 👈 Se guarda la URL original limpia
+                link_afiliado: linkLargoAfiliado, 
                 link_corto: linkCorto,
-                hashtags: marketingData.hashtags,           // 👈 IA Data
-                frase_persuasiva: marketingData.frase,      // 👈 IA Data
+                hashtags: marketingData.hashtags,
+                frase_persuasiva: marketingData.frase,
                 imagen_url: $('meta[property="og:image"]').attr('content'),
                 status: 'Aprobado', 
                 enviado: false, 
