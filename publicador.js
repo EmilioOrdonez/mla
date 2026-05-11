@@ -8,7 +8,7 @@ const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 async function enviarOfertasAprobadas() {
     try {
         const { data: records, error } = await supabase.from('ofertas').select('*').eq('status', 'Aprobado').eq('enviado', false);
-        if (error || !records || records.length === 0) return;
+        if (error || !records || records.length === 0) return console.log("⏳ Nada pendiente.");
 
         for (const record of records) {
             try {
@@ -16,18 +16,19 @@ async function enviarOfertasAprobadas() {
                 const pOf = formateador.format(record.precio_oferta);
                 const pOrig = formateador.format(record.precio_original);
                 
-                // Psicología: Calcular porcentaje de ahorro para impacto
+                // Psicología: Etiqueta de impacto
                 const ahorro = Math.round(((record.precio_original - record.precio_oferta) / record.precio_original) * 100);
-                const tagAhorro = ahorro > 5 ? `📉 *¡${ahorro}% de DESCUENTO!*` : `🔥 *¡PRECIO ESPECIAL!*`;
-
-                const hashtag = `#${record.producto.split(' ')[0].replace(/[^a-zA-Z]/g, '')}`;
+                const tag = ahorro > 5 ? `📉 *¡${ahorro}% de DESCUENTO!*` : `🔥 *¡PRECIO ESPECIAL!*`;
                 
-                // --- 📝 TELEGRAM: Elegante y Persuasivo ---
-                const mensajeTG = `${tagAhorro}\n\n📦 *${record.producto}*\n\n❌ Antes: ~${pOrig}~\n✅ *Hoy solo: ${pOf}*\n\n🛒 *ADQUIÉRELO AQUÍ:* ${record.link_afiliado}\n\n—\n📢 *Genesys Digital* | ${hashtag} #Ofertas`;
+                // Prioridad al link corto
+                const linkFinal = record.link_corto || record.link_afiliado;
+                const hashtag = `#${record.producto.split(' ')[0].replace(/[^a-zA-Z0-9]/g, '')}`;
 
-                // --- 📝 FACEBOOK: Compacto y Profesional ---
-                // Aquí usamos el link de Telegram como invitación VIP
-                const mensajeFB = `🔥 ${record.producto}\n\n💰 Precio: ${pOf} (Antes: ${pOrig})\n🛒 Cómpralo aquí: ${record.link_afiliado}\n\n✨ Únete a nuestro canal VIP para ofertas exclusivas:\n👉 https://t.me/ofertas_mercado_libre_mexico\n\n${hashtag} #MercadoLibre #Ahorro`;
+                // --- 📝 TELEGRAM ---
+                const mensajeTG = `${tag}\n\n📦 *${record.producto}*\n\n❌ Antes: ~${pOrig}~\n✅ *Hoy solo: ${pOf}*\n\n🛒 *COMPRA AQUÍ:* ${linkFinal}\n\n—\n📢 *Genesys Digital* | ${hashtag}`;
+
+                // --- 📝 FACEBOOK ---
+                const mensajeFB = `🔥 ${record.producto}\n\n💰 Precio: ${pOf} (Antes: ${pOrig})\n🛒 Cómpralo aquí: ${linkFinal}\n\n✨ Únete a nuestro canal VIP para ofertas exclusivas:\n👉 https://t.me/ofertas_mercado_libre_mexico\n\n${hashtag} #Ahorro #Mexico`;
 
                 // DISPAROS
                 await axios.post(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendPhoto`, {
@@ -39,10 +40,11 @@ async function enviarOfertasAprobadas() {
                 });
 
                 await supabase.from('ofertas').update({ enviado: true }).eq('id', record.id);
+                console.log(`✅ Publicado: ${record.producto}`);
                 await sleep(5000);
-            } catch (e) { console.error("Error publicando:", e.message); }
+            } catch (e) { console.error("Error enviando"); }
         }
-    } catch (e) { console.error("Error crítico:", e.message); }
+    } catch (e) { console.error("Error crítico"); }
 }
 
 module.exports = { enviarOfertasAprobadas };

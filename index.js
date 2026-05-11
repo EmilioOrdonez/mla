@@ -5,57 +5,63 @@ require('dotenv').config();
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
-async function runScraper() {
-    console.log("🔍 Iniciando búsqueda con normalización de enlaces...");
-    const url = 'https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&category=MLM1648#menu=categories';
-
+async function acortarLink(urlLarga) {
     try {
-        const { data } = await axios.get(url, {
-            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36' }
-        });
-
-        const $ = cheerio.load(data);
-        let items = [];
-
-        $('.promotion-item, .poly-card, .ui-search-layout__item').each((i, el) => {
-            const titulo = $(el).find('.promotion-item__title, .poly-component__title, .ui-search-item__title').text().trim();
-            const linkSucio = $(el).find('a').attr('href');
-            
-            if (titulo && linkSucio) {
-                // --- 🛠️ NORMALIZACIÓN DE URL ---
-                // Eliminamos todo después del '?' o '#' para tener la URL base del producto
-                const linkLimpio = linkSucio.split('?')[0].split('#')[0];
-
-                let precioOrig = $(el).find('s .andes-money-amount__fraction, .andes-money-amount--previous .andes-money-amount__fraction').first().text().replace(/,/g, '') || "0";
-                let precioOf = $(el).find('.andes-money-amount__fraction').not('.andes-money-amount--previous .andes-money-amount__fraction').first().text().replace(/,/g, '') || "0";
-                const imagen = $(el).find('img').attr('src') || $(el).find('img').attr('data-src');
-
-                const linkAfiliado = `${linkLimpio}?matt_tool=${process.env.ML_MATT_TOOL}&matt_word=${process.env.ML_MATT_WORD}`;
-
-                items.push({
-                    producto: titulo,
-                    precio_original: parseFloat(precioOrig) || parseFloat(precioOf),
-                    precio_oferta: parseFloat(precioOf),
-                    link_original: linkLimpio, // Esta es la llave que Postgres usará para detectar duplicados
-                    link_afiliado: linkAfiliado,
-                    imagen_url: imagen || "https://via.placeholder.com/150",
-                    status: 'Aprobado'
-                });
-            }
-        });
-
-        if (items.length === 0) return console.log("⏳ No se encontraron productos nuevos.");
-
-        // Usamos upsert con onConflict para que si el link_original ya existe, NO haga nada (ignore el insert)
-        const { error } = await supabase
-            .from('ofertas')
-            .upsert(items, { onConflict: 'link_original', ignoreDuplicates: true });
-
-        if (error) throw error;
-        console.log(`🎉 Sincronización terminada. Se procesaron ${items.length} productos.`);
-
-    } catch (error) {
-        console.error("❌ Error en el scraper:", error.message);
+        const res = await axios.get(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(urlLarga)}`, { timeout: 10000 });
+        return (res.data && res.data.startsWith('http')) ? res.data : urlLarga;
+    } catch (e) {
+        return urlLarga;
     }
 }
+
+async function runScraper() {
+    console.log("🚀 Iniciando búsqueda automática...");
+    // Ejemplo de URL de ofertas, puedes cambiarla por la categoría que prefieras
+    const searchUrl = "https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=1";
+    
+    try {
+        const resp = await axios.get(searchUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+        const $ = cheerio.load(resp.data);
+        const links = [];
+
+        $('.promotion-item__link-container').each((i, el) => {
+            const link = $(el).attr('href');
+            if(link) links.push(link);
+        });
+
+        console.log(`📦 Encontrados ${links.length} enlaces potenciales.`);
+
+        for(const url of links.slice(0, 5)) { // Procesamos 5 para no saturar
+            try {
+                const pResp = await axios.get(url, { maxRedirects: 5 });
+                let realUrl = pResp.request.res.responseUrl;
+                const uniqueId = realUrl.match(/MLM-?(\d+)/) ? realUrl.match(/MLM-?(\d+)/)[0] : realUrl.split('?')[0];
+                const $$ = cheerio.load(pResp.data);
+
+                let titulo = $$('meta[property="og:title"]').attr('content');
+                let precio = $$('.andes-money-amount__fraction').first().text().replace(/,/g, '');
+
+                const linkLargo = `${realUrl.split('?')[0]}?matt_tool=${process.env.ML_MATT_TOOL}&matt_word=${process.env.ML_MATT_WORD}`;
+                const linkCorto = await acortarLink(linkLargo);
+
+                await supabase.from('ofertas').upsert({
+                    producto: titulo, 
+                    precio_oferta: parseFloat(precio),
+                    precio_original: parseFloat(precio), // Simplificado para auto
+                    link_original: uniqueId, 
+                    link_afiliado: linkLargo, 
+                    link_corto: linkCorto,
+                    imagen_url: $$('meta[property="og:image"]').attr('content'),
+                    status: 'Aprobado', 
+                    enviado: false, 
+                    fecha_mexico: new Date().toLocaleString("en-US", {timeZone: "America/Mexico_City"})
+                }, { onConflict: 'link_original' });
+
+                console.log(`✅ Guardado: ${titulo}`);
+                await new Promise(r => setTimeout(r, 4000));
+            } catch (e) { console.error("Error procesando link"); }
+        }
+    } catch (e) { console.error("Error en scraper"); }
+}
+
 module.exports = { runScraper };
