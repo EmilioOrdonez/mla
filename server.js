@@ -121,6 +121,7 @@ app.post('/api/manual', async (req, res) => {
                 imagen_url: $('meta[property="og:image"]').attr('content'),
                 status: 'Aprobado',
                 enviado: false,
+                fuente: 'Manual', // 👈 NUEVA COLUMNA
                 fecha_mexico: new Date().toLocaleString("en-US", { timeZone: "America/Mexico_City" })
             }, { onConflict: 'link_original' }).select();
 

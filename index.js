@@ -18,7 +18,7 @@ async function runScraper() {
     console.log("🚀 Iniciando búsqueda automática...");
     // Ejemplo de URL de ofertas, puedes cambiarla por la categoría que prefieras
     const searchUrl = "https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=1";
-    
+
     try {
         const resp = await axios.get(searchUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
         const $ = cheerio.load(resp.data);
@@ -26,12 +26,12 @@ async function runScraper() {
 
         $('.promotion-item__link-container').each((i, el) => {
             const link = $(el).attr('href');
-            if(link) links.push(link);
+            if (link) links.push(link);
         });
 
         console.log(`📦 Encontrados ${links.length} enlaces potenciales.`);
 
-        for(const url of links.slice(0, 5)) { // Procesamos 5 para no saturar
+        for (const url of links.slice(0, 5)) { // Procesamos 5 para no saturar
             try {
                 const pResp = await axios.get(url, { maxRedirects: 5 });
                 let realUrl = pResp.request.res.responseUrl;
@@ -45,16 +45,17 @@ async function runScraper() {
                 const linkCorto = await acortarLink(linkLargo);
 
                 await supabase.from('ofertas').upsert({
-                    producto: titulo, 
+                    producto: titulo,
                     precio_oferta: parseFloat(precio),
-                    precio_original: parseFloat(precio), // Simplificado para auto
-                    link_original: uniqueId, 
-                    link_afiliado: linkLargo, 
+                    precio_original: parseFloat(precio),
+                    link_original: uniqueId,
+                    link_afiliado: linkLargo,
                     link_corto: linkCorto,
                     imagen_url: $$('meta[property="og:image"]').attr('content'),
-                    status: 'Aprobado', 
-                    enviado: false, 
-                    fecha_mexico: new Date().toLocaleString("en-US", {timeZone: "America/Mexico_City"})
+                    status: 'Aprobado',
+                    enviado: false,
+                    fuente: 'Auto', // 👈 NUEVA COLUMNA
+                    fecha_mexico: new Date().toLocaleString("en-US", { timeZone: "America/Mexico_City" })
                 }, { onConflict: 'link_original' });
 
                 console.log(`✅ Guardado: ${titulo}`);
