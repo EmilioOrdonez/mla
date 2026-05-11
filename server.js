@@ -67,7 +67,7 @@ app.post('/api/manual', async (req, res) => {
 
     for (const url of urls) {
         try {
-            const response = await axios.get(url, { 
+            const response = await axios.get(url, {
                 maxRedirects: 5,
                 headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
             });
@@ -79,24 +79,25 @@ app.post('/api/manual', async (req, res) => {
                 try {
                     const parsed = JSON.parse($(el).html());
                     if (parsed['@type'] === 'Product') jsonLd = parsed;
-                } catch (e) {}
+                } catch (e) { }
             });
 
             let titulo = jsonLd.name || $('meta[property="og:title"]').attr('content') || $('h1').text().trim();
-            if(titulo && titulo.includes(' - $')) titulo = titulo.substring(0, titulo.lastIndexOf(' - $')).trim();
+            if (titulo && titulo.includes(' - $')) titulo = titulo.substring(0, titulo.lastIndexOf(' - $')).trim();
 
             let precioOf = (jsonLd.offers && jsonLd.offers.price) ? jsonLd.offers.price :
-                           $('meta[itemprop="price"]').attr('content') || 
-                           $('.andes-money-amount__fraction').not('.andes-money-amount--previous .andes-money-amount__fraction').first().text().replace(/,/g, '');
+                $('meta[itemprop="price"]').attr('content') ||
+                $('.andes-money-amount__fraction').not('.andes-money-amount--previous .andes-money-amount__fraction').first().text().replace(/,/g, '');
 
             let precioOrig = $('.ui-pdp-price__part--original .andes-money-amount__fraction').first().text().replace(/,/g, '') ||
-                             $('.andes-money-amount--previous .andes-money-amount__fraction').first().text().replace(/,/g, '') || precioOf;
+                $('.andes-money-amount--previous .andes-money-amount__fraction').first().text().replace(/,/g, '') || precioOf;
 
             let imagen = $('meta[property="og:image"]').attr('content') || (jsonLd.image && jsonLd.image[0]) || $('.ui-pdp-image').first().attr('src');
 
             if (!titulo || !precioOf) throw new Error("Datos incompletos.");
 
-            const { error } = await supabase.from('ofertas').upsert({
+            // ... dentro del bucle de procesamiento manual
+            const { data, error } = await supabase.from('ofertas').upsert({
                 producto: titulo,
                 precio_original: parseFloat(precioOrig),
                 precio_oferta: parseFloat(precioOf),
@@ -104,11 +105,18 @@ app.post('/api/manual', async (req, res) => {
                 link_afiliado: `${realUrl}?matt_tool=${process.env.ML_MATT_TOOL}&matt_word=${process.env.ML_MATT_WORD}`,
                 imagen_url: imagen,
                 status: 'Aprobado',
-                enviado: false 
-            }, { onConflict: 'link_original' });
+                enviado: false,
+                fecha_mexico: new Date().toLocaleString("en-US", { timeZone: "America/Mexico_City" }) // Forzamos hora de CDMX
+            }, { onConflict: 'link_original' }).select(); // El .select() es clave para confirmar la entrada
 
             if (error) throw error;
-            resultados.push({ status: 'success', prod: titulo });
+
+            // Guardamos una pequeña confirmación para el reporte
+            resultados.push({
+                status: 'success',
+                prod: titulo,
+                id_db: data[0].id // Obtenemos el ID real de la base de datos
+            });
 
         } catch (err) {
             resultados.push({ status: 'error', prod: url, detail: err.message });
