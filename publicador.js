@@ -22,7 +22,6 @@ async function enviarOfertasAprobadas() {
 
         for (const record of records) {
             try {
-                // Validación de imagen
                 const foto = record.imagen_url && record.imagen_url.startsWith('http') 
                     ? record.imagen_url 
                     : "https://via.placeholder.com/800x450.png?text=Oferta+Genesys";
@@ -38,12 +37,12 @@ async function enviarOfertasAprobadas() {
                 }
                 const mensajeTG = `🔥 *¡OFERTA DETECTADA!* 🔥\n\n📦 *${record.producto}*\n\n${textoPrecioTG}\n\n🛒 *Cómpralo aquí:* [Enlace de Compra](${record.link_afiliado})\n\n—\n📢 *Genesys Digital - Ofertas*`;
 
-                // --- 📝 FORMATO 2: FACEBOOK (Texto Plano Limpio) ---
+                // --- 📝 FORMATO 2: FACEBOOK (Con Invitación a Telegram) ---
                 let textoPrecioFB = `✅ Precio Especial: ${precioOf}`;
                 if (record.precio_original > record.precio_oferta) {
                     textoPrecioFB = `❌ Antes: ${precioOrig}\n✅ Ahora: ${precioOf}`;
                 }
-                const mensajeFB = `🔥 ¡OFERTA DETECTADA! 🔥\n\n📦 ${record.producto}\n\n${textoPrecioFB}\n\n🛒 Cómpralo aquí: ${record.link_afiliado}\n\n—\n📢 Genesys Digital - Ofertas`;
+                const mensajeFB = `🔥 ¡OFERTA DETECTADA! 🔥\n\n📦 ${record.producto}\n\n${textoPrecioFB}\n\n🛒 Cómpralo aquí: ${record.link_afiliado}\n\n—\n📢 Genesys Digital - Ofertas\n\n👉 ¡Únete a nuestro canal de Telegram para no perderte ninguna oferta en tiempo real!\n📲 https://t.me/ofertas_mercado_libre_mexico`;
 
                 // 🚀 DISPARO 1: TELEGRAM
                 try {
@@ -70,16 +69,15 @@ async function enviarOfertasAprobadas() {
                     console.error(`⚠️ Error en Facebook para "${record.producto}":`, fbErr.response?.data?.error?.message || fbErr.message);
                 }
 
-                // 💾 CIERRE: Marcar como enviado en Supabase
+                // 💾 CIERRE: Marcar como enviado
                 await supabase.from('ofertas').update({ enviado: true }).eq('id', record.id);
                 console.log(`✅ [DB] Registro actualizado a 'enviado'.`);
 
-                // Pausa de seguridad para evitar baneos por Spam en ambas plataformas
                 await sleep(5000);
 
             } catch (innerError) {
                 console.error(`❌ Error de procesamiento con "${record.producto}":`, innerError.message);
-                continue; // Permite que el bucle siga con el próximo producto
+                continue; 
             }
         }
     } catch (error) {
