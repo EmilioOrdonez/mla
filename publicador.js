@@ -6,7 +6,7 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 async function enviarOfertasAprobadas() {
-    console.log("🔍 Revisando cola de publicaciones en Supabase...");
+    console.log("🔍 Revisando cola de publicaciones multi-canal...");
 
     try {
         const { data: records, error } = await supabase
@@ -22,46 +22,68 @@ async function enviarOfertasAprobadas() {
 
         for (const record of records) {
             try {
-                // Validación de seguridad: Si no hay imagen, usamos un placeholder para que Telegram no rechace el post
+                // Validación de imagen
                 const foto = record.imagen_url && record.imagen_url.startsWith('http') 
                     ? record.imagen_url 
-                    : "https://via.placeholder.com/800x450.png?text=Oferta+Sin+Imagen";
+                    : "https://via.placeholder.com/800x450.png?text=Oferta+Genesys";
 
                 const formateador = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' });
                 const precioOf = formateador.format(record.precio_oferta);
                 const precioOrig = formateador.format(record.precio_original);
                 
-                let textoPrecio = `✅ *Precio Especial: ${precioOf}*`;
+                // --- 📝 FORMATO 1: TELEGRAM (Soporta Markdown) ---
+                let textoPrecioTG = `✅ *Precio Especial: ${precioOf}*`;
                 if (record.precio_original > record.precio_oferta) {
-                    textoPrecio = `❌ Antes: ~${precioOrig}~\n✅ *Ahora: ${precioOf}*`;
+                    textoPrecioTG = `❌ Antes: ~${precioOrig}~\n✅ *Ahora: ${precioOf}*`;
+                }
+                const mensajeTG = `🔥 *¡OFERTA DETECTADA!* 🔥\n\n📦 *${record.producto}*\n\n${textoPrecioTG}\n\n🛒 *Cómpralo aquí:* [Enlace de Compra](${record.link_afiliado})\n\n—\n📢 *Genesys Digital - Ofertas*`;
+
+                // --- 📝 FORMATO 2: FACEBOOK (Texto Plano Limpio) ---
+                let textoPrecioFB = `✅ Precio Especial: ${precioOf}`;
+                if (record.precio_original > record.precio_oferta) {
+                    textoPrecioFB = `❌ Antes: ${precioOrig}\n✅ Ahora: ${precioOf}`;
+                }
+                const mensajeFB = `🔥 ¡OFERTA DETECTADA! 🔥\n\n📦 ${record.producto}\n\n${textoPrecioFB}\n\n🛒 Cómpralo aquí: ${record.link_afiliado}\n\n—\n📢 Genesys Digital - Ofertas`;
+
+                // 🚀 DISPARO 1: TELEGRAM
+                try {
+                    await axios.post(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendPhoto`, {
+                        chat_id: process.env.TELEGRAM_CHAT_ID,
+                        photo: foto,
+                        caption: mensajeTG,
+                        parse_mode: 'Markdown'
+                    });
+                    console.log(`✅ [Telegram] Publicado: ${record.producto}`);
+                } catch (tgErr) {
+                    console.error(`⚠️ Error en Telegram para "${record.producto}":`, tgErr.response?.data?.description || tgErr.message);
                 }
 
-                const mensaje = `🔥 *¡OFERTA DETECTADA!* 🔥\n\n📦 *${record.producto}*\n\n${textoPrecio}\n\n🛒 *Cómpralo aquí:* [Enlace de Compra](${record.link_afiliado})\n\n—\n📢 *Genesys Digital - Ofertas*`;
+                // 🚀 DISPARO 2: FACEBOOK
+                try {
+                    await axios.post(`https://graph.facebook.com/v19.0/${process.env.FB_PAGE_ID}/photos`, {
+                        url: foto,
+                        message: mensajeFB,
+                        access_token: process.env.FB_PAGE_TOKEN
+                    });
+                    console.log(`✅ [Facebook] Publicado: ${record.producto}`);
+                } catch (fbErr) {
+                    console.error(`⚠️ Error en Facebook para "${record.producto}":`, fbErr.response?.data?.error?.message || fbErr.message);
+                }
 
-                // Intento de envío a Telegram
-                await axios.post(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendPhoto`, {
-                    chat_id: process.env.TELEGRAM_CHAT_ID,
-                    photo: foto,
-                    caption: mensaje,
-                    parse_mode: 'Markdown'
-                });
-
-                // Si llegamos aquí, el envío fue exitoso. Marcamos como enviado.
+                // 💾 CIERRE: Marcar como enviado en Supabase
                 await supabase.from('ofertas').update({ enviado: true }).eq('id', record.id);
-                console.log(`✅ Publicado con éxito: ${record.producto}`);
+                console.log(`✅ [DB] Registro actualizado a 'enviado'.`);
 
-                // Pausa anti-spam de 3 segundos
-                await sleep(3000);
+                // Pausa de seguridad para evitar baneos por Spam en ambas plataformas
+                await sleep(5000);
 
             } catch (innerError) {
-                // Si este producto falló, lo marcamos para que no trabe a los demás
-                console.error(`⚠️ Error al publicar "${record.producto}": ${innerError.message}`);
-                // Opcional: Podrías marcarlo como 'Error' en Supabase para revisarlo luego
-                continue; 
+                console.error(`❌ Error de procesamiento con "${record.producto}":`, innerError.message);
+                continue; // Permite que el bucle siga con el próximo producto
             }
         }
     } catch (error) {
-        console.error("❌ Error crítico en el publicador:", error.message);
+        console.error("❌ Error crítico en la orquestación:", error.message);
     }
 }
 
