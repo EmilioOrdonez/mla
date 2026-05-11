@@ -33,7 +33,7 @@ app.get('/', (req, res) => {
 });
 
 // 🟢 LÓGICA: Procesador Masivo con Scraping de Detalle
-// 🟢 LÓGICA: Procesador Masivo con Scraping Blindado (SEO Tags)
+// 🟢 LÓGICA: Procesador Masivo con Extracción JSON-LD y Diagnóstico
 app.post('/api/manual', async (req, res) => {
     const rawUrls = req.body.urls.split(/\r?\n/);
     const urls = rawUrls.map(u => u.trim()).filter(u => u.length > 0);
@@ -46,36 +46,65 @@ app.post('/api/manual', async (req, res) => {
             
             const response = await axios.get(url, { 
                 maxRedirects: 5,
-                headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
+                headers: { 
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                    'Accept-Language': 'es-MX,es;q=0.9'
+                }
             });
+            
             const realUrl = response.request.res.responseUrl.split('?')[0];
-            const $ = cheerio.load(response.data);
 
-            // 2. Selectores Blindados (Priorizando Meta Etiquetas SEO)
-            // Extraemos el título del Open Graph
-            let titulo = $('meta[property="og:title"]').attr('content') || $('.ui-pdp-title').text().trim();
-            // Mercado Libre a veces pone " - $ Precio" al final del título en el meta tag, lo limpiamos:
-            if(titulo && titulo.includes(' - $')) {
-                titulo = titulo.substring(0, titulo.lastIndexOf(' - $')).trim();
+            // 1. Detección de link expirado (Redirección al inicio)
+            if (realUrl.includes('/gz/home') || realUrl === 'https://www.mercadolibre.com.mx/') {
+                throw new Error("El enlace redireccionó al inicio (Link expirado o producto eliminado).");
             }
 
-            // Extraemos el precio de la etiqueta estandarizada de e-commerce o respaldos DOM
-            let precioOfertaStr = $('meta[itemprop="price"]').attr('content') || 
+            const $ = cheerio.load(response.data);
+
+            // 2. Detección de bloqueo anti-bots
+            const pageTitle = $('title').text().toLowerCase();
+            if (pageTitle.includes('robot') || pageTitle.includes('captcha') || pageTitle.includes('verifica')) {
+                throw new Error("Bloqueo temporal de Mercado Libre (Captcha detectado).");
+            }
+
+            // 3. Extracción Nivel 3: Buscar el objeto JSON-LD estructurado para Google
+            let jsonLdData = {};
+            $('script[type="application/ld+json"]').each((i, el) => {
+                try {
+                    const parsed = JSON.parse($(el).html());
+                    if (parsed['@type'] === 'Product') {
+                        jsonLdData = parsed;
+                    }
+                } catch (e) {} // Ignorar si no es JSON válido
+            });
+
+            // Extraemos priorizando el JSON puro, luego Meta Tags, luego CSS visual
+            let titulo = jsonLdData.name || $('meta[property="og:title"]').attr('content') || $('.ui-pdp-title').text().trim();
+            if(titulo && titulo.includes(' - $')) {
+                titulo = titulo.substring(0, titulo.lastIndexOf(' - $')).trim(); // Limpieza del precio en el título
+            }
+
+            let precioOfertaStr = (jsonLdData.offers && jsonLdData.offers.price) ? jsonLdData.offers.price :
+                                  $('meta[itemprop="price"]').attr('content') || 
                                   $('.ui-pdp-price__second-line .andes-money-amount__fraction').first().text().replace(/,/g, '') ||
                                   $('.ui-pdp-price .andes-money-amount__fraction').first().text().replace(/,/g, '');
             
             let precioOriginalStr = $('.ui-pdp-price__part--original .andes-money-amount__fraction').first().text().replace(/,/g, '');
 
-            // Extraemos la imagen de alta calidad del Open Graph
-            let imagen = $('meta[property="og:image"]').attr('content') || 
-                         $('.ui-pdp-gallery__figure__image').first().attr('src') || 
-                         $('.ui-pdp-image').first().attr('src');
+            let imagen = $('meta[property="og:image"]').attr('content');
+            if (!imagen && jsonLdData.image) {
+                imagen = Array.isArray(jsonLdData.image) ? jsonLdData.image[0] : jsonLdData.image;
+            }
+            if (!imagen) imagen = $('.ui-pdp-gallery__figure__image').first().attr('src');
 
+            // 4. Diagnóstico final de producto pausado o sin precio
             if (!titulo || !precioOfertaStr) {
-                throw new Error("Estructura de página no reconocida por los selectores.");
+                const isPaused = $('.ui-pdp-message').text().toLowerCase().includes('pausada');
+                if (isPaused) throw new Error("La publicación se encuentra pausada o finalizada.");
+                throw new Error("Formato de catálogo especial. No se encontró el precio.");
             }
 
-            // 3. Guardar en Supabase
+            // Guardado en Supabase
             const { error } = await supabase.from('ofertas').upsert({
                 producto: titulo,
                 precio_original: parseFloat(precioOriginalStr) || parseFloat(precioOfertaStr),
@@ -95,17 +124,22 @@ app.post('/api/manual', async (req, res) => {
         }
     }
 
-    // Generar reporte de salida
+    // Renderizado del reporte
     let htmlReport = `
-        <div style="font-family: sans-serif; max-width: 600px; margin: 40px auto; padding: 20px; border: 1px solid #ccc; border-radius: 8px;">
-            <h2>📊 Reporte de Carga</h2>
+        <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 650px; margin: 40px auto; padding: 30px; border: 1px solid #e0e0e0; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+            <h2 style="color: #333; border-bottom: 2px solid #007bff; padding-bottom: 10px;">📊 Reporte de Procesamiento</h2>
             <ul style="list-style: none; padding: 0;">
     `;
     resultados.forEach(r => {
-        const color = r.status.includes('Éxito') ? 'green' : 'red';
-        htmlReport += `<li style="margin-bottom: 10px; color: ${color};"><strong>${r.status}</strong>: ${r.producto || r.url} <br><small style="color: #666;">${r.detalle || ''}</small></li>`;
+        const color = r.status.includes('Éxito') ? '#28a745' : '#dc3545';
+        htmlReport += `
+            <li style="margin-bottom: 15px; padding: 10px; background: #f8f9fa; border-left: 4px solid ${color}; border-radius: 4px;">
+                <strong style="color: ${color}; font-size: 1.1em;">${r.status}</strong><br>
+                <span style="color: #333; font-weight: 500;">${r.producto || r.url}</span><br>
+                ${r.detalle ? `<small style="color: #666; font-family: monospace;">Detalle: ${r.detalle}</small>` : ''}
+            </li>`;
     });
-    htmlReport += `</ul><a href="/" style="display: inline-block; margin-top: 15px; padding: 10px 15px; background: #007bff; color: white; text-decoration: none; border-radius: 4px;">Volver al panel</a></div>`;
+    htmlReport += `</ul><a href="/" style="display: inline-block; margin-top: 20px; padding: 12px 20px; background: #007bff; color: white; text-decoration: none; border-radius: 6px; font-weight: bold;">Volver al Panel</a></div>`;
     
     res.send(htmlReport);
 });
