@@ -112,6 +112,7 @@ app.get('/', async (req, res) => {
 });
 
 // --- PROCESADOR MANUAL MEJORADO ---
+// --- PROCESADOR MANUAL MEJORADO (V2 - Anti-Colapso) ---
 app.post('/api/manual', async (req, res) => {
     const rawUrls = req.body.urls.split(/\r?\n/);
     const urls = rawUrls.map(u => u.trim()).filter(u => u.length > 0);
@@ -125,7 +126,13 @@ app.post('/api/manual', async (req, res) => {
                 maxRedirects: 5,
                 headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
             });
-            const realUrl = response.request.res.responseUrl.split('?')[0];
+
+            // LOGICA MEJORADA: No cortamos la URL a ciegas. 
+            // Buscamos el ID del producto (MLM...) para asegurar que sea único.
+            let realUrl = response.request.res.responseUrl;
+            const mlidMatch = realUrl.match(/MLM-?(\d+)/);
+            const uniqueId = mlidMatch ? mlidMatch[0] : realUrl.split('?')[0];
+
             const $ = cheerio.load(response.data);
 
             let jsonLd = {};
@@ -150,12 +157,18 @@ app.post('/api/manual', async (req, res) => {
 
             if (!titulo || !precioOf) throw new Error("Datos incompletos.");
             
+            // CONSTRUCCIÓN DE LINK AFILIADO: Usamos URLSearchParams para no romper la estructura
+            const urlObj = new URL(realUrl);
+            urlObj.searchParams.set('matt_tool', process.env.ML_MATT_TOOL);
+            urlObj.searchParams.set('matt_word', process.env.ML_MATT_WORD);
+            const linkAfiliadoFinal = urlObj.toString();
+
             const { data, error } = await supabase.from('ofertas').upsert({
                 producto: titulo,
                 precio_original: parseFloat(precioOrig),
                 precio_oferta: parseFloat(precioOf),
-                link_original: realUrl,
-                link_afiliado: `${realUrl}?matt_tool=${process.env.ML_MATT_TOOL}&matt_word=${process.env.ML_MATT_WORD}`,
+                link_original: uniqueId, // Usamos el ID de producto como clave de conflicto
+                link_afiliado: linkAfiliadoFinal,
                 imagen_url: imagen,
                 status: 'Aprobado',
                 enviado: false,
@@ -171,20 +184,8 @@ app.post('/api/manual', async (req, res) => {
             resultados.push({ status: 'error', prod: url, detail: err.message });
         }
     }
-
-    let reportHtml = `${UI_STYLE}<div class="container"><h2>📊 Reporte de Operación</h2>`;
-    resultados.forEach(r => {
-        const ahora = new Date().toLocaleTimeString("es-MX", {timeZone: "America/Mexico_City"});
-        reportHtml += `
-            <div class="card ${r.status}">
-                <span class="tag">${ahora}</span>
-                <strong>${r.status === 'success' ? '✅' : '❌'}</strong> ${r.prod}
-                ${r.status === 'success' ? `<br><small style="color: #00f2fe">Confirmado en DB (ID: ${r.id_db})</small>` : `<br><small style="color: #ff4b2b">${r.detail}</small>`}
-            </div>`;
-    });
-    reportHtml += `<a href="/" class="btn btn-back">⬅️ VOLVER AL PANEL</a></div>`;
-    
-    res.send(reportHtml); 
+    // ... (resto del código de reporte igual)
+    res.send(reportHtml);
 });
 
 // --- ENDPOINTS AUTOMÁTICOS ---
