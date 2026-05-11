@@ -5,20 +5,6 @@ require('dotenv').config();
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// ... (inicio del archivo igual)
-
-// Generamos un hashtag simple del producto (ej: #Monitor)
-const categoriaHashtag = `#${record.producto.split(' ')[0].replace(/[^a-zA-Z0-9]/g, '')}`;
-const hashtags = `\n\n${categoriaHashtag} #Ofertas #MercadoLibre #GenesysDigital`;
-
-// --- 📝 FORMATO 1: TELEGRAM ---
-const mensajeTG = `🔥 *¡OFERTA DETECTADA!* 🔥\n\n📦 *${record.producto}*\n\n${textoPrecioTG}\n\n🛒 *Cómpralo aquí:* [Enlace de Compra](${record.link_afiliado})\n\n—\n📢 *Genesys Digital - Ofertas*${hashtags}`;
-
-// --- 📝 FORMATO 2: FACEBOOK ---
-const mensajeFB = `🔥 ¡OFERTA DETECTADA! 🔥\n\n📦 ${record.producto}\n\n${textoPrecioFB}\n\n🛒 Cómpralo aquí: ${record.link_afiliado}\n\n—\n📢 Genesys Digital - Ofertas\n\n👉 ¡Únete a nuestro canal de Telegram para no perderte nada!\n📲 https://t.me/TU_CANAL_AQUI${hashtags}`;
-
-// ... (resto del archivo igual)
-
 async function enviarOfertasAprobadas() {
     console.log("🔍 Revisando cola de publicaciones multi-canal...");
 
@@ -36,27 +22,31 @@ async function enviarOfertasAprobadas() {
 
         for (const record of records) {
             try {
-                const foto = record.imagen_url && record.imagen_url.startsWith('http')
-                    ? record.imagen_url
+                const foto = record.imagen_url && record.imagen_url.startsWith('http') 
+                    ? record.imagen_url 
                     : "https://via.placeholder.com/800x450.png?text=Oferta+Genesys";
 
                 const formateador = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' });
                 const precioOf = formateador.format(record.precio_oferta);
                 const precioOrig = formateador.format(record.precio_original);
+                
+                // Generamos un hashtag simple del producto (ej: #Monitor)
+                const categoriaHashtag = `#${record.producto.split(' ')[0].replace(/[^a-zA-Z0-9]/g, '')}`;
+                const hashtags = `\n\n${categoriaHashtag} #Ofertas #MercadoLibre #GenesysDigital`;
 
                 // --- 📝 FORMATO 1: TELEGRAM (Soporta Markdown) ---
                 let textoPrecioTG = `✅ *Precio Especial: ${precioOf}*`;
                 if (record.precio_original > record.precio_oferta) {
                     textoPrecioTG = `❌ Antes: ~${precioOrig}~\n✅ *Ahora: ${precioOf}*`;
                 }
-                const mensajeTG = `🔥 *¡OFERTA DETECTADA!* 🔥\n\n📦 *${record.producto}*\n\n${textoPrecioTG}\n\n🛒 *Cómpralo aquí:* [Enlace de Compra](${record.link_afiliado})\n\n—\n📢 *Genesys Digital - Ofertas*`;
+                const mensajeTG = `🔥 *¡OFERTA DETECTADA!* 🔥\n\n📦 *${record.producto}*\n\n${textoPrecioTG}\n\n🛒 *Cómpralo aquí:* [Enlace de Compra](${record.link_afiliado})\n\n—\n📢 *Genesys Digital - Ofertas*${hashtags}`;
 
-                // --- 📝 FORMATO 2: FACEBOOK (Con Invitación a Telegram) ---
+                // --- 📝 FORMATO 2: FACEBOOK (Texto Plano con Telegram Link) ---
                 let textoPrecioFB = `✅ Precio Especial: ${precioOf}`;
                 if (record.precio_original > record.precio_oferta) {
                     textoPrecioFB = `❌ Antes: ${precioOrig}\n✅ Ahora: ${precioOf}`;
                 }
-                const mensajeFB = `🔥 ¡OFERTA DETECTADA! 🔥\n\n📦 ${record.producto}\n\n${textoPrecioFB}\n\n🛒 Cómpralo aquí: ${record.link_afiliado}\n\n—\n📢 Genesys Digital - Ofertas\n\n👉 ¡Únete a nuestro canal de Telegram para no perderte ninguna oferta en tiempo real!\n📲 https://t.me/ofertas_mercado_libre_mexico`;
+                const mensajeFB = `🔥 ¡OFERTA DETECTADA! 🔥\n\n📦 ${record.producto}\n\n${textoPrecioFB}\n\n🛒 Cómpralo aquí: ${record.link_afiliado}\n\n—\n📢 Genesys Digital - Ofertas\n\n👉 ¡Únete a nuestro canal de Telegram para no perderte ninguna oferta en tiempo real!\n📲 https://t.me/ofertas_mercado_libre_mexico${hashtags}`;
 
                 // 🚀 DISPARO 1: TELEGRAM
                 try {
@@ -83,7 +73,7 @@ async function enviarOfertasAprobadas() {
                     console.error(`⚠️ Error en Facebook para "${record.producto}":`, fbErr.response?.data?.error?.message || fbErr.message);
                 }
 
-                // 💾 CIERRE: Marcar como enviado
+                // 💾 CIERRE: Marcar como enviado en Supabase
                 await supabase.from('ofertas').update({ enviado: true }).eq('id', record.id);
                 console.log(`✅ [DB] Registro actualizado a 'enviado'.`);
 
@@ -91,7 +81,7 @@ async function enviarOfertasAprobadas() {
 
             } catch (innerError) {
                 console.error(`❌ Error de procesamiento con "${record.producto}":`, innerError.message);
-                continue;
+                continue; 
             }
         }
     } catch (error) {
