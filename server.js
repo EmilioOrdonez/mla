@@ -67,7 +67,7 @@ app.post('/api/manual', async (req, res) => {
                 throw new Error("Bloqueo temporal de Mercado Libre (Captcha detectado).");
             }
 
-            // 3. Extracción Nivel 3: Buscar el objeto JSON-LD estructurado para Google
+// 3. Extracción Nivel 3: Buscar el objeto JSON-LD estructurado
             let jsonLdData = {};
             $('script[type="application/ld+json"]').each((i, el) => {
                 try {
@@ -75,34 +75,45 @@ app.post('/api/manual', async (req, res) => {
                     if (parsed['@type'] === 'Product') {
                         jsonLdData = parsed;
                     }
-                } catch (e) {} // Ignorar si no es JSON válido
+                } catch (e) {}
             });
 
-            // Extraemos priorizando el JSON puro, luego Meta Tags, luego CSS visual
-            let titulo = jsonLdData.name || $('meta[property="og:title"]').attr('content') || $('.ui-pdp-title').text().trim();
+            // Título: Agregamos la etiqueta <h1> como último recurso infalible
+            let titulo = jsonLdData.name || $('meta[property="og:title"]').attr('content') || $('.ui-pdp-title').text().trim() || $('h1').text().trim();
             if(titulo && titulo.includes(' - $')) {
-                titulo = titulo.substring(0, titulo.lastIndexOf(' - $')).trim(); // Limpieza del precio en el título
+                titulo = titulo.substring(0, titulo.lastIndexOf(' - $')).trim();
             }
 
+            // Búsqueda exhaustiva del precio (Fuerza Bruta para páginas /p/ de catálogo)
             let precioOfertaStr = (jsonLdData.offers && jsonLdData.offers.price) ? jsonLdData.offers.price :
                                   $('meta[itemprop="price"]').attr('content') || 
                                   $('.ui-pdp-price__second-line .andes-money-amount__fraction').first().text().replace(/,/g, '') ||
-                                  $('.ui-pdp-price .andes-money-amount__fraction').first().text().replace(/,/g, '');
+                                  $('.ui-pdp-buybox .andes-money-amount__fraction').first().text().replace(/,/g, '') ||
+                                  // Selector global: Encuentra el primer precio que NO sea un precio original/tachado
+                                  $('.andes-money-amount__fraction').not('.andes-money-amount--previous .andes-money-amount__fraction').not('.ui-pdp-price__part--original .andes-money-amount__fraction').first().text().replace(/,/g, '');
             
-            let precioOriginalStr = $('.ui-pdp-price__part--original .andes-money-amount__fraction').first().text().replace(/,/g, '');
+            let precioOriginalStr = $('.ui-pdp-price__part--original .andes-money-amount__fraction').first().text().replace(/,/g, '') ||
+                                    $('.andes-money-amount--previous .andes-money-amount__fraction').first().text().replace(/,/g, '');
 
             let imagen = $('meta[property="og:image"]').attr('content');
             if (!imagen && jsonLdData.image) {
                 imagen = Array.isArray(jsonLdData.image) ? jsonLdData.image[0] : jsonLdData.image;
             }
-            if (!imagen) imagen = $('.ui-pdp-gallery__figure__image').first().attr('src');
+            if (!imagen) imagen = $('.ui-pdp-gallery__figure__image').first().attr('src') || $('.ui-pdp-image').first().attr('src');
 
-            // 4. Diagnóstico final de producto pausado o sin precio
-            if (!titulo || !precioOfertaStr) {
-                const isPaused = $('.ui-pdp-message').text().toLowerCase().includes('pausada');
+            // 4. Diagnóstico de Catálogo y Stock
+            if (!titulo || !precioOfertaStr || precioOfertaStr === '') {
+                const bodyText = $('body').text().toLowerCase();
+                if (bodyText.includes('sin stock') || bodyText.includes('agotado')) {
+                    throw new Error("El producto está agotado (Sin stock disponible).");
+                }
+                const isPaused = bodyText.includes('publicación pausada');
                 if (isPaused) throw new Error("La publicación se encuentra pausada o finalizada.");
-                throw new Error("Formato de catálogo especial. No se encontró el precio.");
+                
+                throw new Error("Estructura encriptada. No se encontró el precio.");
             }
+
+            // Guardado en Supabase...
 
             // Guardado en Supabase
             const { error } = await supabase.from('ofertas').upsert({
