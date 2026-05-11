@@ -30,23 +30,23 @@ async function enviarOfertasAprobadas() {
                 const precioOf = formateador.format(record.precio_oferta);
                 const precioOrig = formateador.format(record.precio_original);
                 
-                // Generamos un hashtag simple del producto (ej: #Monitor)
                 const categoriaHashtag = `#${record.producto.split(' ')[0].replace(/[^a-zA-Z0-9]/g, '')}`;
-                const hashtags = `\n\n${categoriaHashtag} #Ofertas #MercadoLibre #GenesysDigital`;
+                const hashtags = ` ${categoriaHashtag} #Ofertas #MercadoLibre`;
 
-                // --- 📝 FORMATO 1: TELEGRAM (Soporta Markdown) ---
+                // --- 📝 FORMATO 1: TELEGRAM (Soporta formato largo y Markdown) ---
                 let textoPrecioTG = `✅ *Precio Especial: ${precioOf}*`;
                 if (record.precio_original > record.precio_oferta) {
                     textoPrecioTG = `❌ Antes: ~${precioOrig}~\n✅ *Ahora: ${precioOf}*`;
                 }
-                const mensajeTG = `🔥 *¡OFERTA DETECTADA!* 🔥\n\n📦 *${record.producto}*\n\n${textoPrecioTG}\n\n🛒 *Cómpralo aquí:* [Enlace de Compra](${record.link_afiliado})\n\n—\n📢 *Genesys Digital - Ofertas*${hashtags}`;
+                const mensajeTG = `🔥 *¡OFERTA DETECTADA!* 🔥\n\n📦 *${record.producto}*\n\n${textoPrecioTG}\n\n🛒 *Cómpralo aquí:* [Enlace de Compra](${record.link_afiliado})\n\n—\n📢 *Genesys Digital - Ofertas*\n${hashtags}`;
 
-                // --- 📝 FORMATO 2: FACEBOOK (Texto Plano con Telegram Link) ---
-                let textoPrecioFB = `✅ Precio Especial: ${precioOf}`;
+                // --- 📝 FORMATO 2: FACEBOOK (COMPACTO - Evita el "ver más") ---
+                let textoPrecioFB = `✅ Oferta: ${precioOf}`;
                 if (record.precio_original > record.precio_oferta) {
-                    textoPrecioFB = `❌ Antes: ${precioOrig}\n✅ Ahora: ${precioOf}`;
+                    textoPrecioFB = `❌ Antes: ${precioOrig} | ✅ Ahora: ${precioOf}`;
                 }
-                const mensajeFB = `🔥 ¡OFERTA DETECTADA! 🔥\n\n📦 ${record.producto}\n\n${textoPrecioFB}\n\n🛒 Cómpralo aquí: ${record.link_afiliado}\n\n—\n📢 Genesys Digital - Ofertas\n\n👉 ¡Únete a nuestro canal de Telegram para no perderte ninguna oferta en tiempo real!\n📲 https://t.me/ofertas_mercado_libre_mexico${hashtags}`;
+                // Todo más pegado, menos saltos de línea.
+                const mensajeFB = `🔥 ${record.producto}\n${textoPrecioFB}\n🛒 Comprar: ${record.link_afiliado}\n📲 Más ofertas en Telegram: https://t.me/ofertas_mercado_libre_mexico\n${hashtags}`;
 
                 // 🚀 DISPARO 1: TELEGRAM
                 try {
@@ -73,14 +73,14 @@ async function enviarOfertasAprobadas() {
                     console.error(`⚠️ Error en Facebook para "${record.producto}":`, fbErr.response?.data?.error?.message || fbErr.message);
                 }
 
-                // 💾 CIERRE: Marcar como enviado en Supabase
+                // 💾 CIERRE
                 await supabase.from('ofertas').update({ enviado: true }).eq('id', record.id);
                 console.log(`✅ [DB] Registro actualizado a 'enviado'.`);
 
                 await sleep(5000);
 
             } catch (innerError) {
-                console.error(`❌ Error de procesamiento con "${record.producto}":`, innerError.message);
+                console.error(`❌ Error con "${record.producto}":`, innerError.message);
                 continue; 
             }
         }
