@@ -40,13 +40,13 @@ async function enviarOfertasAprobadas() {
                 }
                 const mensajeTG = `🔥 *¡OFERTA DETECTADA!* 🔥\n\n📦 *${record.producto}*\n\n${textoPrecioTG}\n\n🛒 *Cómpralo aquí:* ${record.link_afiliado}\n\n—\n📢 *Genesys Digital - Ofertas*\n${hashtags}`;
 
-                // --- 📝 FORMATO 2: FACEBOOK (SÚPER COMPACTO Y LIMPIO) ---
+                // --- 📝 FORMATO 2: FACEBOOK (COMPACTO Y CLICKEABLE) ---
                 let textoPrecioFB = `✅ Oferta: ${precioOf}`;
                 if (record.precio_original > record.precio_oferta) {
                     textoPrecioFB = `❌ Antes: ${precioOrig} | ✅ Ahora: ${precioOf}`;
                 }
-                // Hacemos el enlace a Telegram visualmente minúsculo pero clickeable
-                const mensajeFB = `🔥 ${record.producto}\n${textoPrecioFB}\n🛒 Comprar: ${record.link_afiliado}\n📲 Telegram: t.me/https://t.me/ofertas_mercado_libre_mexico\n${hashtags}`;
+                // Añadido el https:// a Telegram para que Facebook lo detecte como enlace
+                const mensajeFB = `🔥 ${record.producto}\n${textoPrecioFB}\n🛒 Comprar: ${record.link_afiliado}\n📲 Telegram: https://t.me/ofertas_mercado_libre_mexico\n${hashtags}`;
 
                 // 🚀 DISPARO 1: TELEGRAM
                 try {

@@ -127,7 +127,7 @@ app.get('/', async (req, res) => {
     }
 });
 
-// --- PROCESADOR MANUAL MEJORADO (CON ACORTADOR) ---
+// --- PROCESADOR MANUAL ---
 app.post('/api/manual', async (req, res) => {
     const rawUrls = req.body.urls.split(/\r?\n/);
     const urls = rawUrls.map(u => u.trim()).filter(u => u.length > 0);
@@ -173,10 +173,10 @@ app.post('/api/manual', async (req, res) => {
             urlObj.searchParams.set('matt_word', process.env.ML_MATT_WORD);
             const linkAfiliadoFinal = urlObj.toString();
 
-            // ✂️ NUEVO: Acortador de URL automático con TinyURL API
+            // ✂️ RETORNO A TINYURL API (Estándar de confianza)
             let linkAcortado = linkAfiliadoFinal;
             try {
-                const tinyRes = await axios.get(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(linkAfiliadoFinal)}`, { timeout: 5000 });
+                const tinyRes = await axios.get(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(linkAfiliadoFinal)}`, { timeout: 8000 });
                 if (tinyRes.data && tinyRes.data.startsWith('http')) {
                     linkAcortado = tinyRes.data;
                 }
@@ -189,7 +189,7 @@ app.post('/api/manual', async (req, res) => {
                 precio_original: parseFloat(precioOrig),
                 precio_oferta: parseFloat(precioOf),
                 link_original: uniqueId, 
-                link_afiliado: linkAcortado, // Se guarda súper corto en DB
+                link_afiliado: linkAcortado, // Se guarda el link acortado
                 imagen_url: imagen,
                 status: 'Aprobado',
                 enviado: false,
@@ -199,7 +199,9 @@ app.post('/api/manual', async (req, res) => {
             if (error) throw error;
 
             resultados.push({ status: 'success', prod: titulo, id_db: data[0].id });
-            await sleep(4000); 
+            
+            // Pausa de seguridad alargada ligeramente para evitar bloqueos de TinyURL
+            await sleep(4500); 
 
         } catch (err) {
             resultados.push({ status: 'error', prod: url, detail: err.message });
