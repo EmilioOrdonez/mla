@@ -73,42 +73,65 @@ app.get('/', async (req, res) => {
         const { count: total } = await supabase.from('ofertas').select('*', { count: 'exact', head: true });
         const { count: enviadas } = await supabase.from('ofertas').select('*', { count: 'exact', head: true }).eq('enviado', true);
         const { count: pendientes } = await supabase.from('ofertas').select('*', { count: 'exact', head: true }).eq('enviado', false);
-        res.send(`${UI_STYLE}<div class="container"><h1>GENESYS <span style="color:#fff">DIGITAL</span></h1><div class="dashboard"><div class="stat-box"><div class="stat-num">${total||0}</div><div class="stat-label">Total</div></div><div class="stat-box" style="color:var(--success)"><div class="stat-num">${enviadas||0}</div><div class="stat-label">Publicados</div></div><div class="stat-box" style="color:var(--warning)"><div class="stat-num">${pendientes||0}</div><div class="stat-label">En Cola</div></div></div><form id="form-manual" action="/api/manual" method="POST"><textarea id="urls-input" name="urls" rows="5" placeholder="Pega los links meli.la aquí..." required></textarea><button type="button" id="btn-procesar" class="btn btn-primary" onclick="showLoading()"><span id="spinner" class="spinner"></span><span id="btn-text">🚀 PROCESAR Y ACORTAR</span></button></form><div class="grid"><a href="/api/buscar" class="btn btn-back" style="color: #28a745;">🔍 AUTO SEARCH</a><a href="/api/publicar" class="btn btn-back" style="color: #6f42c1;">📤 PUBLICAR YA</a></div></div>${UI_FOOTER}`);
+        res.send(`${UI_STYLE}<div class="container"><h1>GENESYS <span style="color:#fff">DIGITAL</span></h1><div class="dashboard"><div class="stat-box"><div class="stat-num">${total || 0}</div><div class="stat-label">Total</div></div><div class="stat-box" style="color:var(--success)"><div class="stat-num">${enviadas || 0}</div><div class="stat-label">Publicados</div></div><div class="stat-box" style="color:var(--warning)"><div class="stat-num">${pendientes || 0}</div><div class="stat-label">En Cola</div></div></div><form id="form-manual" action="/api/manual" method="POST"><textarea id="urls-input" name="urls" rows="5" placeholder="Pega los links meli.la aquí..." required></textarea><button type="button" id="btn-procesar" class="btn btn-primary" onclick="showLoading()"><span id="spinner" class="spinner"></span><span id="btn-text">🚀 PROCESAR Y ACORTAR</span></button></form><div class="grid"><a href="/api/buscar" class="btn btn-back" style="color: #28a745;">🔍 AUTO SEARCH</a><a href="/api/publicar" class="btn btn-back" style="color: #6f42c1;">📤 PUBLICAR YA</a></div></div>${UI_FOOTER}`);
     } catch (e) { res.status(500).send("Error de DB"); }
 });
 
+// --- PROCESADOR MANUAL REFORZADO (Anti-colapso 1945) ---
 app.post('/api/manual', async (req, res) => {
     const urls = req.body.urls.split(/\r?\n/).map(u => u.trim()).filter(u => u.length > 0);
     let resultados = [];
+
     for (const url of urls) {
         try {
             const resp = await axios.get(url, { maxRedirects: 5, headers: { 'User-Agent': 'Mozilla/5.0' } });
             let realUrl = resp.request.res.responseUrl;
-            const uniqueId = realUrl.match(/MLM-?(\d+)/) ? realUrl.match(/MLM-?(\d+)/)[0] : realUrl.split('?')[0];
+
+            // 🛠️ MEJORA: Regex más agresivo para capturar el ID MLM de cualquier parte de la URL
+            const mlidMatch = realUrl.match(/MLM-?(\d+)/i);
+
+            // Si no hay MLM, generamos una llave única usando la URL + Timestamp 
+            // Esto garantiza que nunca se sobreescriba un registro si tú no quieres
+            const uniqueId = mlidMatch ? mlidMatch[0].toUpperCase() : `MANUAL-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+
             const $ = cheerio.load(resp.data);
             let titulo = $('meta[property="og:title"]').attr('content') || $('h1').text().trim();
-            if(titulo.includes(' - $')) titulo = titulo.split(' - $')[0];
+            if (titulo.includes(' - $')) titulo = titulo.split(' - $')[0];
+
             let precioOf = $('.andes-money-amount__fraction').not('.andes-money-amount--previous .andes-money-amount__fraction').first().text().replace(/,/g, '');
             let precioOrig = $('.andes-money-amount--previous .andes-money-amount__fraction').first().text().replace(/,/g, '') || precioOf;
-            
+
             const urlObj = new URL(realUrl);
             urlObj.searchParams.set('matt_tool', process.env.ML_MATT_TOOL);
             urlObj.searchParams.set('matt_word', process.env.ML_MATT_WORD);
             const linkLargo = urlObj.toString();
             const linkCorto = await acortarLink(linkLargo);
 
+            // 💾 CAMBIO ESTRATÉGICO: 
+            // Si quieres HISTORIAL total, podrías usar .insert() en lugar de .upsert()
+            // Pero con este 'uniqueId' dinámico, el .upsert() creará registros nuevos 
+            // para cada sesión manual, evitando el error del ID 1945.
             const { data, error } = await supabase.from('ofertas').upsert({
-                producto: titulo, precio_original: parseFloat(precioOrig), precio_oferta: parseFloat(precioOf),
-                link_original: uniqueId, link_afiliado: linkLargo, link_corto: linkCorto,
+                producto: titulo,
+                precio_original: parseFloat(precioOrig),
+                precio_oferta: parseFloat(precioOf),
+                link_original: uniqueId,
+                link_afiliado: linkLargo,
+                link_corto: linkCorto,
                 imagen_url: $('meta[property="og:image"]').attr('content'),
-                status: 'Aprobado', enviado: false, fecha_mexico: new Date().toLocaleString("en-US", {timeZone: "America/Mexico_City"})
+                status: 'Aprobado',
+                enviado: false,
+                fecha_mexico: new Date().toLocaleString("en-US", { timeZone: "America/Mexico_City" })
             }, { onConflict: 'link_original' }).select();
-            
+
             resultados.push({ status: error ? 'error' : 'success', prod: titulo });
-            await sleep(3000);
-        } catch (e) { resultados.push({ status: 'error', prod: url }); }
+            await sleep(3500);
+
+        } catch (e) {
+            resultados.push({ status: 'error', prod: url });
+        }
     }
-    res.send(`${UI_STYLE}<div class="container"><h2>📊 Reporte</h2>${resultados.map(r=>`<div class="card ${r.status}"><strong>${r.status=='success'?'✅':'❌'}</strong> ${r.prod}</div>`).join('')}<a href="/" class="btn btn-back">VOLVER AL PANEL</a></div>${UI_FOOTER}`);
+    res.send(`${UI_STYLE}<div class="container"><h2>📊 Reporte</h2>${resultados.map(r => `<div class="card ${r.status}"><strong>${r.status == 'success' ? '✅' : '❌'}</strong> ${r.prod}</div>`).join('')}<a href="/" class="btn btn-back">VOLVER AL PANEL</a></div>${UI_FOOTER}`);
 });
 
 app.get('/api/buscar', async (req, res) => { res.send("Buscando..."); await runScraper(); });
