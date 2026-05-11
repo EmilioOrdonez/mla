@@ -33,8 +33,8 @@ app.get('/', (req, res) => {
 });
 
 // 🟢 LÓGICA: Procesador Masivo con Scraping de Detalle
+// 🟢 LÓGICA: Procesador Masivo con Scraping Blindado (SEO Tags)
 app.post('/api/manual', async (req, res) => {
-    // Dividimos el contenido del textarea por saltos de línea y limpiamos espacios
     const rawUrls = req.body.urls.split(/\r?\n/);
     const urls = rawUrls.map(u => u.trim()).filter(u => u.length > 0);
     
@@ -44,7 +44,6 @@ app.post('/api/manual', async (req, res) => {
         try {
             console.log(`🔍 Procesando: ${url}`);
             
-            // 1. Expandir URL y obtener HTML
             const response = await axios.get(url, { 
                 maxRedirects: 5,
                 headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
@@ -52,18 +51,28 @@ app.post('/api/manual', async (req, res) => {
             const realUrl = response.request.res.responseUrl.split('?')[0];
             const $ = cheerio.load(response.data);
 
-            // 2. Selectores específicos para la página de PRODUCTO (PDP)
-            const titulo = $('.ui-pdp-title').text().trim();
+            // 2. Selectores Blindados (Priorizando Meta Etiquetas SEO)
+            // Extraemos el título del Open Graph
+            let titulo = $('meta[property="og:title"]').attr('content') || $('.ui-pdp-title').text().trim();
+            // Mercado Libre a veces pone " - $ Precio" al final del título en el meta tag, lo limpiamos:
+            if(titulo && titulo.includes(' - $')) {
+                titulo = titulo.substring(0, titulo.lastIndexOf(' - $')).trim();
+            }
+
+            // Extraemos el precio de la etiqueta estandarizada de e-commerce o respaldos DOM
+            let precioOfertaStr = $('meta[itemprop="price"]').attr('content') || 
+                                  $('.ui-pdp-price__second-line .andes-money-amount__fraction').first().text().replace(/,/g, '') ||
+                                  $('.ui-pdp-price .andes-money-amount__fraction').first().text().replace(/,/g, '');
             
-            // Extraer precios (ML usa clases diferentes en la página de detalle)
-            const precioOfertaStr = $('.ui-pdp-price__second-line .andes-money-amount__fraction').first().text().replace(/,/g, '');
-            const precioOriginalStr = $('.ui-pdp-price__part--original .andes-money-amount__fraction').first().text().replace(/,/g, '');
-            
-            // URL de la imagen (usualmente es la primera de la galería)
-            const imagen = $('.ui-pdp-gallery__figure__image').first().attr('src') || $('.ui-pdp-image').first().attr('src');
+            let precioOriginalStr = $('.ui-pdp-price__part--original .andes-money-amount__fraction').first().text().replace(/,/g, '');
+
+            // Extraemos la imagen de alta calidad del Open Graph
+            let imagen = $('meta[property="og:image"]').attr('content') || 
+                         $('.ui-pdp-gallery__figure__image').first().attr('src') || 
+                         $('.ui-pdp-image').first().attr('src');
 
             if (!titulo || !precioOfertaStr) {
-                throw new Error("No se pudieron extraer los datos esenciales.");
+                throw new Error("Estructura de página no reconocida por los selectores.");
             }
 
             // 3. Guardar en Supabase
@@ -87,11 +96,16 @@ app.post('/api/manual', async (req, res) => {
     }
 
     // Generar reporte de salida
-    let htmlReport = `<h2>Reporte de Carga</h2><ul>`;
+    let htmlReport = `
+        <div style="font-family: sans-serif; max-width: 600px; margin: 40px auto; padding: 20px; border: 1px solid #ccc; border-radius: 8px;">
+            <h2>📊 Reporte de Carga</h2>
+            <ul style="list-style: none; padding: 0;">
+    `;
     resultados.forEach(r => {
-        htmlReport += `<li><strong>${r.status}</strong>: ${r.producto || r.url} ${r.detalle ? `(${r.detalle})` : ''}</li>`;
+        const color = r.status.includes('Éxito') ? 'green' : 'red';
+        htmlReport += `<li style="margin-bottom: 10px; color: ${color};"><strong>${r.status}</strong>: ${r.producto || r.url} <br><small style="color: #666;">${r.detalle || ''}</small></li>`;
     });
-    htmlReport += `</ul><a href="/">Volver al panel</a>`;
+    htmlReport += `</ul><a href="/" style="display: inline-block; margin-top: 15px; padding: 10px 15px; background: #007bff; color: white; text-decoration: none; border-radius: 4px;">Volver al panel</a></div>`;
     
     res.send(htmlReport);
 });
