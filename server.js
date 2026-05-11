@@ -14,7 +14,6 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
-// --- ESTILOS CSS REUTILIZABLES (¡Ahora 100% Mobile First!) ---
 const UI_STYLE = `
 <!DOCTYPE html>
 <html lang="es">
@@ -128,7 +127,7 @@ app.get('/', async (req, res) => {
     }
 });
 
-// --- PROCESADOR MANUAL ---
+// --- PROCESADOR MANUAL MEJORADO (CON ACORTADOR) ---
 app.post('/api/manual', async (req, res) => {
     const rawUrls = req.body.urls.split(/\r?\n/);
     const urls = rawUrls.map(u => u.trim()).filter(u => u.length > 0);
@@ -174,12 +173,23 @@ app.post('/api/manual', async (req, res) => {
             urlObj.searchParams.set('matt_word', process.env.ML_MATT_WORD);
             const linkAfiliadoFinal = urlObj.toString();
 
+            // ✂️ NUEVO: Acortador de URL automático con TinyURL API
+            let linkAcortado = linkAfiliadoFinal;
+            try {
+                const tinyRes = await axios.get(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(linkAfiliadoFinal)}`, { timeout: 5000 });
+                if (tinyRes.data && tinyRes.data.startsWith('http')) {
+                    linkAcortado = tinyRes.data;
+                }
+            } catch (err) {
+                console.log(`⚠️ Falló TinyURL para ${titulo}, usando enlace original largo.`);
+            }
+
             const { data, error } = await supabase.from('ofertas').upsert({
                 producto: titulo,
                 precio_original: parseFloat(precioOrig),
                 precio_oferta: parseFloat(precioOf),
                 link_original: uniqueId, 
-                link_afiliado: linkAfiliadoFinal,
+                link_afiliado: linkAcortado, // Se guarda súper corto en DB
                 imagen_url: imagen,
                 status: 'Aprobado',
                 enviado: false,

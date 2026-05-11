@@ -33,20 +33,20 @@ async function enviarOfertasAprobadas() {
                 const categoriaHashtag = `#${record.producto.split(' ')[0].replace(/[^a-zA-Z0-9]/g, '')}`;
                 const hashtags = ` ${categoriaHashtag} #Ofertas #MercadoLibre`;
 
-                // --- 📝 FORMATO 1: TELEGRAM (Soporta formato largo y Markdown) ---
+                // --- 📝 FORMATO 1: TELEGRAM (Soporta Markdown) ---
                 let textoPrecioTG = `✅ *Precio Especial: ${precioOf}*`;
                 if (record.precio_original > record.precio_oferta) {
                     textoPrecioTG = `❌ Antes: ~${precioOrig}~\n✅ *Ahora: ${precioOf}*`;
                 }
-                const mensajeTG = `🔥 *¡OFERTA DETECTADA!* 🔥\n\n📦 *${record.producto}*\n\n${textoPrecioTG}\n\n🛒 *Cómpralo aquí:* [Enlace de Compra](${record.link_afiliado})\n\n—\n📢 *Genesys Digital - Ofertas*\n${hashtags}`;
+                const mensajeTG = `🔥 *¡OFERTA DETECTADA!* 🔥\n\n📦 *${record.producto}*\n\n${textoPrecioTG}\n\n🛒 *Cómpralo aquí:* ${record.link_afiliado}\n\n—\n📢 *Genesys Digital - Ofertas*\n${hashtags}`;
 
-                // --- 📝 FORMATO 2: FACEBOOK (COMPACTO - Evita el "ver más") ---
+                // --- 📝 FORMATO 2: FACEBOOK (SÚPER COMPACTO Y LIMPIO) ---
                 let textoPrecioFB = `✅ Oferta: ${precioOf}`;
                 if (record.precio_original > record.precio_oferta) {
                     textoPrecioFB = `❌ Antes: ${precioOrig} | ✅ Ahora: ${precioOf}`;
                 }
-                // Todo más pegado, menos saltos de línea.
-                const mensajeFB = `🔥 ${record.producto}\n${textoPrecioFB}\n🛒 Comprar: ${record.link_afiliado}\n📲 Más ofertas en Telegram: https://t.me/ofertas_mercado_libre_mexico\n${hashtags}`;
+                // Hacemos el enlace a Telegram visualmente minúsculo pero clickeable
+                const mensajeFB = `🔥 ${record.producto}\n${textoPrecioFB}\n🛒 Comprar: ${record.link_afiliado}\n📲 Telegram: t.me/https://t.me/ofertas_mercado_libre_mexico\n${hashtags}`;
 
                 // 🚀 DISPARO 1: TELEGRAM
                 try {
