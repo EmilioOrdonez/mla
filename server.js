@@ -4,179 +4,147 @@ const cheerio = require('cheerio');
 const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config();
 
+// Importamos las funciones de tus otros archivos
 const { runScraper } = require('./index');
 const { enviarOfertasAprobadas } = require('./publicador');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Inicialización de Supabase
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
+// Middlewares para procesar datos de formularios y JSON
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
-// 🟢 INTERFAZ: Formulario para envío masivo
+// --------------------------------------------------------------------------
+// 1. INTERFAZ: Panel de Control (Manual + Enlaces de Estado)
+// --------------------------------------------------------------------------
 app.get('/', (req, res) => {
     res.send(`
-        <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 40px auto; padding: 30px; border: 1px solid #e0e0e0; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
-            <h2 style="color: #333; border-bottom: 2px solid #007bff; padding-bottom: 10px;">🚀 Panel de Carga Masiva</h2>
-            <p style="color: #666;">Pega una o varias URLs (una por línea):</p>
-            <form action="/api/manual" method="POST">
-                <textarea name="urls" rows="10" style="width: 100%; padding: 12px; border: 1px solid #ccc; border-radius: 6px; font-family: monospace; resize: vertical;" placeholder="https://meli.la/...\nhttps://articulo.mercadolibre.com.mx/..." required></textarea>
-                <button type="submit" style="margin-top: 15px; width: 100%; padding: 12px; background: #007bff; color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer;">Procesar y Guardar en Supabase</button>
-            </form>
-            <div style="margin-top: 20px; font-size: 0.9em; color: #888;">
-                Endpoints: <a href="/api/buscar">/buscar</a> | <a href="/api/publicar">/publicar</a>
+        <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 700px; margin: 40px auto; padding: 30px; border: 1px solid #e0e0e0; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.05);">
+            <h2 style="color: #333; border-bottom: 3px solid #007bff; padding-bottom: 10px;">🚀 Genesys Digital: Panel de Control</h2>
+            
+            <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 25px;">
+                <h4 style="margin-top:0;">📥 Carga Masiva Manual</h4>
+                <p style="color: #666; font-size: 0.9em;">Pega tus links (meli.la o directos), uno por línea:</p>
+                <form action="/api/manual" method="POST">
+                    <textarea name="urls" rows="8" style="width: 100%; padding: 12px; border: 1px solid #ccc; border-radius: 6px; font-family: monospace;" placeholder="https://meli.la/...\nhttps://articulo.mercadolibre..."></textarea>
+                    <button type="submit" style="margin-top: 10px; width: 100%; padding: 12px; background: #007bff; color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer;">Procesar y Guardar</button>
+                </form>
             </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                <a href="/api/buscar" style="text-align: center; padding: 15px; background: #28a745; color: white; text-decoration: none; border-radius: 8px; font-weight: bold;">🔍 Disparar Búsqueda Auto</a>
+                <a href="/api/publicar" style="text-align: center; padding: 15px; background: #6f42c1; color: white; text-decoration: none; border-radius: 8px; font-weight: bold;">📤 Disparar Publicador</a>
+            </div>
+            
+            <p style="margin-top: 20px; color: #888; font-size: 0.8em; text-align: center;">El servidor responderá a los cron-jobs externos de forma automática.</p>
         </div>
     `);
 });
 
-// 🟢 LÓGICA: Procesador Masivo con Scraping de Detalle
-// 🟢 LÓGICA: Procesador Masivo con Extracción JSON-LD y Diagnóstico
+// --------------------------------------------------------------------------
+// 2. LÓGICA MANUAL: Procesador Masivo con Scraping de Nivel 3
+// --------------------------------------------------------------------------
 app.post('/api/manual', async (req, res) => {
     const rawUrls = req.body.urls.split(/\r?\n/);
     const urls = rawUrls.map(u => u.trim()).filter(u => u.length > 0);
-
     let resultados = [];
 
     for (const url of urls) {
         try {
-            console.log(`🔍 Procesando: ${url}`);
-
-            const response = await axios.get(url, {
+            console.log(`🔍 Procesando manual: ${url}`);
+            const response = await axios.get(url, { 
                 maxRedirects: 5,
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-                    'Accept-Language': 'es-MX,es;q=0.9'
-                }
+                headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
             });
-
             const realUrl = response.request.res.responseUrl.split('?')[0];
-
-            // 1. Detección de link expirado (Redirección al inicio)
-            if (realUrl.includes('/gz/home') || realUrl === 'https://www.mercadolibre.com.mx/') {
-                throw new Error("El enlace redireccionó al inicio (Link expirado o producto eliminado).");
-            }
-
             const $ = cheerio.load(response.data);
 
-            // 2. Detección de bloqueo anti-bots
-            const pageTitle = $('title').text().toLowerCase();
-            if (pageTitle.includes('robot') || pageTitle.includes('captcha') || pageTitle.includes('verifica')) {
-                throw new Error("Bloqueo temporal de Mercado Libre (Captcha detectado).");
-            }
-
-            // 3. Extracción Nivel 3: Buscar el objeto JSON-LD estructurado
-            let jsonLdData = {};
+            // Extracción JSON-LD (Dato estructurado de Google)
+            let jsonLd = {};
             $('script[type="application/ld+json"]').each((i, el) => {
                 try {
                     const parsed = JSON.parse($(el).html());
-                    if (parsed['@type'] === 'Product') {
-                        jsonLdData = parsed;
-                    }
-                } catch (e) { }
+                    if (parsed['@type'] === 'Product') jsonLd = parsed;
+                } catch (e) {}
             });
 
-            // Título: Agregamos la etiqueta <h1> como último recurso infalible
-            let titulo = jsonLdData.name || $('meta[property="og:title"]').attr('content') || $('.ui-pdp-title').text().trim() || $('h1').text().trim();
-            if (titulo && titulo.includes(' - $')) {
-                titulo = titulo.substring(0, titulo.lastIndexOf(' - $')).trim();
-            }
+            // Mapeo de datos con fallbacks robustos
+            let titulo = jsonLd.name || $('meta[property="og:title"]').attr('content') || $('h1').text().trim();
+            if(titulo && titulo.includes(' - $')) titulo = titulo.substring(0, titulo.lastIndexOf(' - $')).trim();
 
-            // Búsqueda exhaustiva del precio (Fuerza Bruta para páginas /p/ de catálogo)
-            let precioOfertaStr = (jsonLdData.offers && jsonLdData.offers.price) ? jsonLdData.offers.price :
-                $('meta[itemprop="price"]').attr('content') ||
-                $('.ui-pdp-price__second-line .andes-money-amount__fraction').first().text().replace(/,/g, '') ||
-                $('.ui-pdp-buybox .andes-money-amount__fraction').first().text().replace(/,/g, '') ||
-                // Selector global: Encuentra el primer precio que NO sea un precio original/tachado
-                $('.andes-money-amount__fraction').not('.andes-money-amount--previous .andes-money-amount__fraction').not('.ui-pdp-price__part--original .andes-money-amount__fraction').first().text().replace(/,/g, '');
+            let precioOf = (jsonLd.offers && jsonLd.offers.price) ? jsonLd.offers.price :
+                           $('meta[itemprop="price"]').attr('content') || 
+                           $('.andes-money-amount__fraction').not('.andes-money-amount--previous .andes-money-amount__fraction').first().text().replace(/,/g, '');
 
-            let precioOriginalStr = $('.ui-pdp-price__part--original .andes-money-amount__fraction').first().text().replace(/,/g, '') ||
-                $('.andes-money-amount--previous .andes-money-amount__fraction').first().text().replace(/,/g, '');
+            let precioOrig = $('.ui-pdp-price__part--original .andes-money-amount__fraction').first().text().replace(/,/g, '') ||
+                             $('.andes-money-amount--previous .andes-money-amount__fraction').first().text().replace(/,/g, '') || precioOf;
 
-            let imagen = $('meta[property="og:image"]').attr('content');
-            if (!imagen && jsonLdData.image) {
-                imagen = Array.isArray(jsonLdData.image) ? jsonLdData.image[0] : jsonLdData.image;
-            }
-            if (!imagen) imagen = $('.ui-pdp-gallery__figure__image').first().attr('src') || $('.ui-pdp-image').first().attr('src');
+            let imagen = $('meta[property="og:image"]').attr('content') || (jsonLd.image && jsonLd.image[0]) || $('.ui-pdp-image').first().attr('src');
 
-            // 4. Diagnóstico de Catálogo y Stock
-            if (!titulo || !precioOfertaStr || precioOfertaStr === '') {
-                const bodyText = $('body').text().toLowerCase();
-                if (bodyText.includes('sin stock') || bodyText.includes('agotado')) {
-                    throw new Error("El producto está agotado (Sin stock disponible).");
-                }
-                const isPaused = bodyText.includes('publicación pausada');
-                if (isPaused) throw new Error("La publicación se encuentra pausada o finalizada.");
+            if (!titulo || !precioOf) throw new Error("No se detectaron datos en la página.");
 
-                throw new Error("Estructura encriptada. No se encontró el precio.");
-            }
-
-            // 3. Guardar en Supabase con reporte de estado
-            const { data, error, status } = await supabase
-                .from('ofertas')
-                .upsert({
-                    producto: titulo,
-                    precio_original: parseFloat(precioOriginalStr) || parseFloat(precioOfertaStr),
-                    precio_oferta: parseFloat(precioOfertaStr),
-                    link_original: realUrl,
-                    link_afiliado: `${realUrl}?matt_tool=${process.env.ML_MATT_TOOL}&matt_word=${process.env.ML_MATT_WORD}`,
-                    imagen_url: imagen,
-                    status: 'Aprobado',
-                    enviado: false // Forzamos a que se vuelva a enviar si lo estamos metiendo manual
-                }, { onConflict: 'link_original' })
-                .select(); // Esto nos devuelve el registro afectado
-
-            if (error) throw error;
-
-            console.log(`📡 Supabase respondió con status: ${status}`);
-
-            resultados.push({
-                url,
-                status: '✅ Éxito',
+            // Guardar o Actualizar en Supabase (Reiniciando 'enviado' a false)
+            const { error } = await supabase.from('ofertas').upsert({
                 producto: titulo,
-                detalle: data && data.length > 0 ? "Registro actualizado/insertado" : "Sin cambios"
-            });
+                precio_original: parseFloat(precioOrig),
+                precio_oferta: parseFloat(precioOf),
+                link_original: realUrl,
+                link_afiliado: `${realUrl}?matt_tool=${process.env.ML_MATT_TOOL}&matt_word=${process.env.ML_MATT_WORD}`,
+                imagen_url: imagen,
+                status: 'Aprobado',
+                enviado: false 
+            }, { onConflict: 'link_original' });
 
             if (error) throw error;
-            resultados.push({ url, status: '✅ Éxito', producto: titulo });
+            resultados.push({ status: '✅ Éxito', producto: titulo });
 
         } catch (err) {
-            console.error(`❌ Error en ${url}:`, err.message);
-            resultados.push({ url, status: '❌ Error', detalle: err.message });
+            resultados.push({ status: '❌ Error', producto: url, detalle: err.message });
         }
     }
 
-    // Renderizado del reporte
-    let htmlReport = `
-        <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 650px; margin: 40px auto; padding: 30px; border: 1px solid #e0e0e0; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
-            <h2 style="color: #333; border-bottom: 2px solid #007bff; padding-bottom: 10px;">📊 Reporte de Procesamiento</h2>
-            <ul style="list-style: none; padding: 0;">
-    `;
+    // Reporte Final
+    let report = `<div style="font-family: sans-serif; max-width: 600px; margin: 20px auto;"><h2>Reporte de Carga</h2><ul style="list-style:none; padding:0;">`;
     resultados.forEach(r => {
-        const color = r.status.includes('Éxito') ? '#28a745' : '#dc3545';
-        htmlReport += `
-            <li style="margin-bottom: 15px; padding: 10px; background: #f8f9fa; border-left: 4px solid ${color}; border-radius: 4px;">
-                <strong style="color: ${color}; font-size: 1.1em;">${r.status}</strong><br>
-                <span style="color: #333; font-weight: 500;">${r.producto || r.url}</span><br>
-                ${r.detalle ? `<small style="color: #666; font-family: monospace;">Detalle: ${r.detalle}</small>` : ''}
-            </li>`;
+        const isErr = r.status.includes('Error');
+        report += `<li style="padding:10px; margin-bottom:5px; background:${isErr ? '#fff5f5' : '#f0fff4'}; border-left:5px solid ${isErr ? '#fc8181' : '#68d391'};">
+            <strong>${r.status}</strong>: ${r.producto} ${r.detalle ? `<br><small>${r.detalle}</small>` : ''}
+        </li>`;
     });
-    htmlReport += `</ul><a href="/" style="display: inline-block; margin-top: 20px; padding: 12px 20px; background: #007bff; color: white; text-decoration: none; border-radius: 6px; font-weight: bold;">Volver al Panel</a></div>`;
-
-    res.send(htmlReport);
+    report += `</ul><a href="/">Volver</a></div>`;
+    res.send(report);
 });
 
-// Endpoints de automatización (sin cambios)
-app.get('/api/buscar', (req, res) => {
-    res.status(200).send('Búsqueda iniciada.');
-    runScraper();
+// --------------------------------------------------------------------------
+// 3. DISPARADORES AUTOMÁTICOS (Webhooks para Cron-Jobs externos)
+// --------------------------------------------------------------------------
+
+// Endpoint para el Scraper automático (Se llama cada 45 min desde cron-job.org)
+app.get('/api/buscar', async (req, res) => {
+    console.log("🚀 Disparando búsqueda automática...");
+    res.status(200).send("Proceso de búsqueda iniciado.");
+    try {
+        await runScraper();
+    } catch (err) {
+        console.error("Error en búsqueda auto:", err.message);
+    }
 });
 
-app.get('/api/publicar', (req, res) => {
-    res.status(200).send('Publicador iniciado.');
-    enviarOfertasAprobadas();
+// Endpoint para el Publicador de Telegram (Se llama cada 60 min desde cron-job.org)
+app.get('/api/publicar', async (req, res) => {
+    console.log("🚀 Disparando publicación automática...");
+    res.status(200).send("Proceso de publicación iniciado.");
+    try {
+        await enviarOfertasAprobadas();
+    } catch (err) {
+        console.error("Error en publicación auto:", err.message);
+    }
 });
 
-app.listen(PORT, () => console.log(`🌐 Servidor en puerto ${PORT}`));
+app.listen(PORT, () => {
+    console.log(`🌐 Genesys Digital activo en puerto ${PORT}`);
+});
