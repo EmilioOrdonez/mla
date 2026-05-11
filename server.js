@@ -37,21 +37,21 @@ app.get('/', (req, res) => {
 app.post('/api/manual', async (req, res) => {
     const rawUrls = req.body.urls.split(/\r?\n/);
     const urls = rawUrls.map(u => u.trim()).filter(u => u.length > 0);
-    
+
     let resultados = [];
 
     for (const url of urls) {
         try {
             console.log(`🔍 Procesando: ${url}`);
-            
-            const response = await axios.get(url, { 
+
+            const response = await axios.get(url, {
                 maxRedirects: 5,
-                headers: { 
+                headers: {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
                     'Accept-Language': 'es-MX,es;q=0.9'
                 }
             });
-            
+
             const realUrl = response.request.res.responseUrl.split('?')[0];
 
             // 1. Detección de link expirado (Redirección al inicio)
@@ -67,7 +67,7 @@ app.post('/api/manual', async (req, res) => {
                 throw new Error("Bloqueo temporal de Mercado Libre (Captcha detectado).");
             }
 
-// 3. Extracción Nivel 3: Buscar el objeto JSON-LD estructurado
+            // 3. Extracción Nivel 3: Buscar el objeto JSON-LD estructurado
             let jsonLdData = {};
             $('script[type="application/ld+json"]').each((i, el) => {
                 try {
@@ -75,25 +75,25 @@ app.post('/api/manual', async (req, res) => {
                     if (parsed['@type'] === 'Product') {
                         jsonLdData = parsed;
                     }
-                } catch (e) {}
+                } catch (e) { }
             });
 
             // Título: Agregamos la etiqueta <h1> como último recurso infalible
             let titulo = jsonLdData.name || $('meta[property="og:title"]').attr('content') || $('.ui-pdp-title').text().trim() || $('h1').text().trim();
-            if(titulo && titulo.includes(' - $')) {
+            if (titulo && titulo.includes(' - $')) {
                 titulo = titulo.substring(0, titulo.lastIndexOf(' - $')).trim();
             }
 
             // Búsqueda exhaustiva del precio (Fuerza Bruta para páginas /p/ de catálogo)
             let precioOfertaStr = (jsonLdData.offers && jsonLdData.offers.price) ? jsonLdData.offers.price :
-                                  $('meta[itemprop="price"]').attr('content') || 
-                                  $('.ui-pdp-price__second-line .andes-money-amount__fraction').first().text().replace(/,/g, '') ||
-                                  $('.ui-pdp-buybox .andes-money-amount__fraction').first().text().replace(/,/g, '') ||
-                                  // Selector global: Encuentra el primer precio que NO sea un precio original/tachado
-                                  $('.andes-money-amount__fraction').not('.andes-money-amount--previous .andes-money-amount__fraction').not('.ui-pdp-price__part--original .andes-money-amount__fraction').first().text().replace(/,/g, '');
-            
+                $('meta[itemprop="price"]').attr('content') ||
+                $('.ui-pdp-price__second-line .andes-money-amount__fraction').first().text().replace(/,/g, '') ||
+                $('.ui-pdp-buybox .andes-money-amount__fraction').first().text().replace(/,/g, '') ||
+                // Selector global: Encuentra el primer precio que NO sea un precio original/tachado
+                $('.andes-money-amount__fraction').not('.andes-money-amount--previous .andes-money-amount__fraction').not('.ui-pdp-price__part--original .andes-money-amount__fraction').first().text().replace(/,/g, '');
+
             let precioOriginalStr = $('.ui-pdp-price__part--original .andes-money-amount__fraction').first().text().replace(/,/g, '') ||
-                                    $('.andes-money-amount--previous .andes-money-amount__fraction').first().text().replace(/,/g, '');
+                $('.andes-money-amount--previous .andes-money-amount__fraction').first().text().replace(/,/g, '');
 
             let imagen = $('meta[property="og:image"]').attr('content');
             if (!imagen && jsonLdData.image) {
@@ -109,22 +109,35 @@ app.post('/api/manual', async (req, res) => {
                 }
                 const isPaused = bodyText.includes('publicación pausada');
                 if (isPaused) throw new Error("La publicación se encuentra pausada o finalizada.");
-                
+
                 throw new Error("Estructura encriptada. No se encontró el precio.");
             }
 
-            // Guardado en Supabase...
+            // 3. Guardar en Supabase con reporte de estado
+            const { data, error, status } = await supabase
+                .from('ofertas')
+                .upsert({
+                    producto: titulo,
+                    precio_original: parseFloat(precioOriginalStr) || parseFloat(precioOfertaStr),
+                    precio_oferta: parseFloat(precioOfertaStr),
+                    link_original: realUrl,
+                    link_afiliado: `${realUrl}?matt_tool=${process.env.ML_MATT_TOOL}&matt_word=${process.env.ML_MATT_WORD}`,
+                    imagen_url: imagen,
+                    status: 'Aprobado',
+                    enviado: false // Forzamos a que se vuelva a enviar si lo estamos metiendo manual
+                }, { onConflict: 'link_original' })
+                .select(); // Esto nos devuelve el registro afectado
 
-            // Guardado en Supabase
-            const { error } = await supabase.from('ofertas').upsert({
+            if (error) throw error;
+
+            console.log(`📡 Supabase respondió con status: ${status}`);
+
+            resultados.push({
+                url,
+                status: '✅ Éxito',
                 producto: titulo,
-                precio_original: parseFloat(precioOriginalStr) || parseFloat(precioOfertaStr),
-                precio_oferta: parseFloat(precioOfertaStr),
-                link_original: realUrl,
-                link_afiliado: `${realUrl}?matt_tool=${process.env.ML_MATT_TOOL}&matt_word=${process.env.ML_MATT_WORD}`,
-                imagen_url: imagen,
-                status: 'Aprobado'
-            }, { onConflict: 'link_original' });
+                detalle: data && data.length > 0 ? "Registro actualizado/insertado" : "Sin cambios"
+            });
 
             if (error) throw error;
             resultados.push({ url, status: '✅ Éxito', producto: titulo });
@@ -151,7 +164,7 @@ app.post('/api/manual', async (req, res) => {
             </li>`;
     });
     htmlReport += `</ul><a href="/" style="display: inline-block; margin-top: 20px; padding: 12px 20px; background: #007bff; color: white; text-decoration: none; border-radius: 6px; font-weight: bold;">Volver al Panel</a></div>`;
-    
+
     res.send(htmlReport);
 });
 
