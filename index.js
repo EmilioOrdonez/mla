@@ -43,14 +43,14 @@ async function runScraper() {
     
     // 🗂️ BATERÍA DE RUTAS ESTRUCTURALES (A prueba de redirecciones rotas de ML)
     const rutasDeBusqueda = [
-        "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=1](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=1)",
-        "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=2](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=2)",
-        "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=3](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=3)",
-        "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=4](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=4)",
-        "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=5](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=5)",
-        "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=6](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=6)",
-        "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=7](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=7)",
-        "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=8](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=8)"
+        "[https://www.mercadolibre.com.mx/ofertas?page=1](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=1)",
+        "[https://www.mercadolibre.com.mx/ofertas?page=2](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=2)",
+        "[https://www.mercadolibre.com.mx/ofertas?page=3](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=3)",
+        "[https://www.mercadolibre.com.mx/ofertas?page=4](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=4)",
+        "[https://www.mercadolibre.com.mx/ofertas?page=5](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=5)",
+        "[https://www.mercadolibre.com.mx/ofertas?page=6](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=6)",
+        "[https://www.mercadolibre.com.mx/ofertas?page=7](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=7)",
+        "[https://www.mercadolibre.com.mx/ofertas?page=8](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=8)"
     ];
 
     const searchUrlRaw = rutasDeBusqueda[Math.floor(Math.random() * rutasDeBusqueda.length)];
