@@ -41,7 +41,6 @@ function mezclarArreglo(array) {
 async function runScraper() {
     console.log("🚀 [PASO 1] Iniciando búsqueda automática multipista...");
     
-    // 🗂️ BATERÍA DE RUTAS ESTRUCTURALES
     const rutasDeBusqueda = [
         "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=1](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=1)",
         "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=2](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=2)",
@@ -55,13 +54,11 @@ async function runScraper() {
 
     let searchUrlRaw = rutasDeBusqueda[Math.floor(Math.random() * rutasDeBusqueda.length)];
     
-    // 🛡️ ESCUDO ANTI-MARKDOWN
     if (searchUrlRaw.startsWith('[')) {
         const match = searchUrlRaw.match(/\(([^)]+)\)/);
         if (match) searchUrlRaw = match[1];
     }
     
-    // Construimos un objeto URL válido
     const searchUrl = new URL(searchUrlRaw.trim()).href;
     
     console.log(`🎯 [PASO 2] Explorando página maestra segura: ${searchUrl}`);
@@ -81,7 +78,7 @@ async function runScraper() {
         const $ = cheerio.load(resp.data);
         let links = [];
 
-        $('.promotion-item__link-container, .poly-component__title, a.ui-search-link, a[href*="/MLM"]').each((i, el) => {
+        $('.promotion-item__link-container, .poly-component__title, a.ui-search-link, a[href*="/MLM"], a[href*="/p/MLM"]').each((i, el) => {
             let link = $(el).attr('href');
             if(link && typeof link === 'string') {
                 link = link.trim();
@@ -93,25 +90,47 @@ async function runScraper() {
 
         console.log(`📦 [PASO 4] Encontrados ${links.length} enlaces URL válidos.`);
 
-        if (links.length === 0) return console.log("⚠️ No se encontraron productos. ML pudo haber bloqueado la vista o cambiado el código.");
+        if (links.length === 0) return console.log("⚠️ No se encontraron productos.");
 
         links = mezclarArreglo(links);
         let guardadosNuevos = 0;
 
         for(const url of links.slice(0, 5)) {
             try {
-                console.log(`🔍 [PASO 5] Analizando enlace individual: ${url}`);
+                console.log(`🔍 [PASO 5] Analizando enlace: ${url.split('?')[0]}`);
                 const pResp = await axios.get(url, { maxRedirects: 5, headers: { 'User-Agent': 'Mozilla/5.0' } });
                 
                 let realUrl = pResp.request?.res?.responseUrl || url;
                 const linkOriginalLimpio = realUrl.split('?')[0];
                 
                 const $$ = cheerio.load(pResp.data);
-                let titulo = $$('meta[property="og:title"]').attr('content');
-                let precio = $$('.andes-money-amount__fraction').first().text().replace(/,/g, '');
+                
+                // 🛠️ SELECTORES MULTIPISTA PARA TÍTULO
+                let titulo = $$('meta[property="og:title"]').attr('content') 
+                          || $$('h1.ui-pdp-title').text().trim() 
+                          || $$('h1').text().trim();
+                
+                if(titulo && titulo.includes(' - $')) titulo = titulo.split(' - $')[0];
+                if(titulo && titulo.includes(' |')) titulo = titulo.split(' |')[0];
 
+                // 🛠️ SELECTORES MULTIPISTA PARA PRECIO (Priorizando etiquetas SEO invisibles)
+                let precio = $$('meta[itemprop="price"]').attr('content');
+                
+                // Si la etiqueta SEO no existe, buscamos el precio visible de oferta
+                if (!precio) {
+                    const precioVisible = $$('.ui-pdp-price__second-line .andes-money-amount__fraction').first().text() 
+                                       || $$('.andes-money-amount__fraction').first().text();
+                    if (precioVisible) precio = precioVisible.replace(/,/g, '');
+                }
+
+                // 📡 TELEMETRÍA AVANZADA: Nos dirá qué faltó si falla
                 if (!titulo || !precio) {
-                    console.log("⚠️ Faltan datos (título o precio). Se salta el producto.");
+                    const tituloEstado = titulo ? 'OK' : 'NULO';
+                    const precioEstado = precio ? 'OK' : 'NULO';
+                    const pageTitle = $$('title').text(); // Para saber si caímos en un Captcha
+                    
+                    console.log(`⚠️ Faltan datos -> Título: ${tituloEstado} | Precio: ${precioEstado}`);
+                    console.log(`🕵️‍♂️ Título de la página devuelta por ML: "${pageTitle}"`);
                     continue;
                 }
 
@@ -122,7 +141,7 @@ async function runScraper() {
                     continue; 
                 }
 
-                console.log(`✨ Procesando Nuevo Producto y llamando a IA: ${titulo}`);
+                console.log(`✨ Procesando Nuevo: ${titulo}`);
 
                 const linkLargo = `${linkOriginalLimpio}?matt_tool=${process.env.ML_MATT_TOOL}&matt_word=${process.env.ML_MATT_WORD}`;
                 
@@ -130,6 +149,11 @@ async function runScraper() {
                     acortarLink(linkLargo),
                     generarMarketingIA(titulo)
                 ]);
+
+                // 🛠️ SELECTOR MULTIPISTA PARA IMAGEN
+                let imagenFinal = $$('meta[property="og:image"]').attr('content') 
+                               || $$('.ui-pdp-gallery__figure__image').attr('src')
+                               || '';
 
                 await supabase.from('ofertas').upsert({
                     producto: titulo, 
@@ -140,7 +164,7 @@ async function runScraper() {
                     link_corto: linkCorto,
                     hashtags: marketingData.hashtags,
                     frase_persuasiva: marketingData.frase,
-                    imagen_url: $$('meta[property="og:image"]').attr('content'),
+                    imagen_url: imagenFinal,
                     status: 'Aprobado', 
                     enviado: false, 
                     fuente: 'Auto',
@@ -163,5 +187,4 @@ async function runScraper() {
     }
 }
 
-// EL PUENTE DE EXPORTACIÓN (¡La pieza que faltaba!)
 module.exports = { runScraper };
