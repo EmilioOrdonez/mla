@@ -41,29 +41,31 @@ function mezclarArreglo(array) {
 async function runScraper() {
     console.log("🚀 [PASO 1] Iniciando búsqueda automática multipista...");
     
-    // Rutas verificadas sin caracteres invisibles
+    // 🗂️ BATERÍA DE RUTAS ESTRUCTURALES (A prueba de redirecciones rotas de ML)
     const rutasDeBusqueda = [
         "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=1](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=1)",
         "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=2](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=2)",
         "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=3](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=3)",
-        "[https://www.mercadolibre.com.mx/ofertas/computacion](https://www.mercadolibre.com.mx/ofertas/computacion)",
-        "[https://www.mercadolibre.com.mx/ofertas/celulares-y-telefonia](https://www.mercadolibre.com.mx/ofertas/celulares-y-telefonia)",
-        "[https://www.mercadolibre.com.mx/ofertas/herramientas](https://www.mercadolibre.com.mx/ofertas/herramientas)",
-        "[https://www.mercadolibre.com.mx/ofertas/electronica-audio-y-video](https://www.mercadolibre.com.mx/ofertas/electronica-audio-y-video)",
-        "[https://www.mercadolibre.com.mx/ofertas/hogar-muebles-y-jardin](https://www.mercadolibre.com.mx/ofertas/hogar-muebles-y-jardin)"
+        "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=4](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=4)",
+        "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=5](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=5)",
+        "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=6](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=6)",
+        "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=7](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=7)",
+        "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=8](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=8)"
     ];
 
     const searchUrlRaw = rutasDeBusqueda[Math.floor(Math.random() * rutasDeBusqueda.length)];
-    // Limpiamos la URL por si hay espacios o saltos de línea ocultos
-    const searchUrl = searchUrlRaw.trim(); 
     
-    console.log(`🎯 [PASO 2] Explorando categoría segura: ${searchUrl}`);
+    // Construimos un objeto URL válido para evitar caracteres invisibles
+    const searchUrl = new URL(searchUrlRaw.trim()).href;
+    
+    console.log(`🎯 [PASO 2] Explorando página maestra segura: ${searchUrl}`);
     
     try {
         const resp = await axios.get(searchUrl, { 
-            maxRedirects: 5,
+            maxRedirects: 3, // Evitamos bucles infinitos de ML
             headers: { 
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
                 'Accept-Language': 'es-MX,es;q=0.9'
             } 
         });
@@ -75,10 +77,10 @@ async function runScraper() {
 
         $('.promotion-item__link-container, .poly-component__title, a.ui-search-link, a[href*="/MLM"]').each((i, el) => {
             let link = $(el).attr('href');
-            // Validamos que el link exista y esté bien formado antes de agregarlo
             if(link && typeof link === 'string') {
                 link = link.trim();
-                if(link.startsWith('http') && !links.includes(link)) {
+                // Verificación de URL absoluta
+                if(link.startsWith('https://') && !links.includes(link)) {
                     links.push(link);
                 }
             }
@@ -96,7 +98,6 @@ async function runScraper() {
                 console.log(`🔍 [PASO 5] Analizando enlace individual: ${url}`);
                 const pResp = await axios.get(url, { maxRedirects: 5, headers: { 'User-Agent': 'Mozilla/5.0' } });
                 
-                // Aseguramos que tenemos una URL de respuesta válida
                 let realUrl = pResp.request?.res?.responseUrl || url;
                 const linkOriginalLimpio = realUrl.split('?')[0];
                 
@@ -146,8 +147,7 @@ async function runScraper() {
                 await new Promise(r => setTimeout(r, 4500));
 
             } catch (innerError) { 
-                console.error(`❌ [ERROR INTERNO] Falló al procesar el enlace: ${url}`);
-                console.error(`Detalle del error: ${innerError.message}`);
+                console.error(`❌ [ERROR INTERNO] Falló al procesar el enlace individual.`);
             }
         }
         
