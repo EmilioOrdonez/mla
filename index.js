@@ -7,6 +7,21 @@ require('dotenv').config();
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
+// 🛡️ TRAJE DE CAMUFLAJE (Para evadir el Firewall de Mercado Libre)
+const headersHumanos = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+    'Accept-Language': 'es-MX,es;q=0.9,en-US;q=0.8,en;q=0.7',
+    'Sec-Ch-Ua': '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"',
+    'Sec-Ch-Ua-Mobile': '?0',
+    'Sec-Ch-Ua-Platform': '"Windows"',
+    'Sec-Fetch-Dest': 'document',
+    'Sec-Fetch-Mode': 'navigate',
+    'Sec-Fetch-Site': 'none',
+    'Sec-Fetch-User': '?1',
+    'Upgrade-Insecure-Requests': '1'
+};
+
 async function acortarLink(urlLarga) {
     try {
         const res = await axios.get(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(urlLarga)}`, { timeout: 10000 });
@@ -60,19 +75,10 @@ async function runScraper() {
     }
     
     const searchUrl = new URL(searchUrlRaw.trim()).href;
-    
     console.log(`🎯 [PASO 2] Explorando página maestra segura: ${searchUrl}`);
     
     try {
-        const resp = await axios.get(searchUrl, { 
-            maxRedirects: 3, 
-            headers: { 
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                'Accept-Language': 'es-MX,es;q=0.9'
-            } 
-        });
-        
+        const resp = await axios.get(searchUrl, { maxRedirects: 3, headers: headersHumanos });
         console.log("✅ [PASO 3] Conexión a Mercado Libre exitosa. Leyendo página...");
         
         const $ = cheerio.load(resp.data);
@@ -82,13 +88,14 @@ async function runScraper() {
             let link = $(el).attr('href');
             if(link && typeof link === 'string') {
                 link = link.trim();
-                if(link.startsWith('https://') && !links.includes(link)) {
+                // 🛑 FILTRO DE BASURA: Ignoramos anuncios 'click1' y enlaces no seguros
+                if(link.startsWith('https://') && !links.includes(link) && !link.includes('click1.mercadolibre')) {
                     links.push(link);
                 }
             }
         });
 
-        console.log(`📦 [PASO 4] Encontrados ${links.length} enlaces URL válidos.`);
+        console.log(`📦 [PASO 4] Encontrados ${links.length} enlaces URL válidos (sin anuncios).`);
 
         if (links.length === 0) return console.log("⚠️ No se encontraron productos.");
 
@@ -97,15 +104,17 @@ async function runScraper() {
 
         for(const url of links.slice(0, 5)) {
             try {
+                // Pequeña pausa ANTES de atacar la página para no disparar alarmas
+                await new Promise(r => setTimeout(r, 1500)); 
+
                 console.log(`🔍 [PASO 5] Analizando enlace: ${url.split('?')[0]}`);
-                const pResp = await axios.get(url, { maxRedirects: 5, headers: { 'User-Agent': 'Mozilla/5.0' } });
+                const pResp = await axios.get(url, { maxRedirects: 5, headers: headersHumanos });
                 
                 let realUrl = pResp.request?.res?.responseUrl || url;
                 const linkOriginalLimpio = realUrl.split('?')[0];
                 
                 const $$ = cheerio.load(pResp.data);
                 
-                // 🛠️ SELECTORES MULTIPISTA PARA TÍTULO
                 let titulo = $$('meta[property="og:title"]').attr('content') 
                           || $$('h1.ui-pdp-title').text().trim() 
                           || $$('h1').text().trim();
@@ -113,24 +122,19 @@ async function runScraper() {
                 if(titulo && titulo.includes(' - $')) titulo = titulo.split(' - $')[0];
                 if(titulo && titulo.includes(' |')) titulo = titulo.split(' |')[0];
 
-                // 🛠️ SELECTORES MULTIPISTA PARA PRECIO (Priorizando etiquetas SEO invisibles)
                 let precio = $$('meta[itemprop="price"]').attr('content');
-                
-                // Si la etiqueta SEO no existe, buscamos el precio visible de oferta
                 if (!precio) {
                     const precioVisible = $$('.ui-pdp-price__second-line .andes-money-amount__fraction').first().text() 
                                        || $$('.andes-money-amount__fraction').first().text();
                     if (precioVisible) precio = precioVisible.replace(/,/g, '');
                 }
 
-                // 📡 TELEMETRÍA AVANZADA: Nos dirá qué faltó si falla
                 if (!titulo || !precio) {
                     const tituloEstado = titulo ? 'OK' : 'NULO';
                     const precioEstado = precio ? 'OK' : 'NULO';
-                    const pageTitle = $$('title').text(); // Para saber si caímos en un Captcha
-                    
+                    const pageTitle = $$('title').text(); 
                     console.log(`⚠️ Faltan datos -> Título: ${tituloEstado} | Precio: ${precioEstado}`);
-                    console.log(`🕵️‍♂️ Título de la página devuelta por ML: "${pageTitle}"`);
+                    console.log(`🕵️‍♂️ Título devuelto: "${pageTitle}" (Posible Bloqueo/Captcha de ML)`);
                     continue;
                 }
 
@@ -150,7 +154,6 @@ async function runScraper() {
                     generarMarketingIA(titulo)
                 ]);
 
-                // 🛠️ SELECTOR MULTIPISTA PARA IMAGEN
                 let imagenFinal = $$('meta[property="og:image"]').attr('content') 
                                || $$('.ui-pdp-gallery__figure__image').attr('src')
                                || '';
@@ -176,7 +179,7 @@ async function runScraper() {
                 await new Promise(r => setTimeout(r, 4500));
 
             } catch (innerError) { 
-                console.error(`❌ [ERROR INTERNO] Falló al procesar el enlace individual.`);
+                console.error(`❌ [ERROR INTERNO] Falló al procesar el enlace individual: Posible bloqueo 403 de Mercado Libre.`);
             }
         }
         
