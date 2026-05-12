@@ -49,26 +49,12 @@ async function runScraper() {
     console.log("🚀 [PASO 1] Iniciando búsqueda automática (Grid Scraping)...");
     
     const rutasDeBusqueda = [
-        "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=1](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=1)",
-        "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=2](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=2)",
-        "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=3](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=3)",
-        "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=4](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=4)",
-        "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=5](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=5)",
-        "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=6](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=6)",
-        "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=7](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=7)",
-        "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=8](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=8)",
-        "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=9](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=9)",
-        "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=10](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=10)",
-        "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=11](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=11)",  
-        "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=12](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=12)",
-        "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=13](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=13)",
-        "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=14](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=14)",
-        "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=15](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=15)",
-        "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=16](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=16)",
-        "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=17](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=17)",
-        "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=18](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=18)",
-        "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=19](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=19)",
-        "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=20](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=20)"
+        "https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=1",
+        "https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=2",
+        "https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=3",
+        "https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=4",
+        "https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=5",
+        "https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=6"
     ];
 
     let searchUrlRaw = rutasDeBusqueda[Math.floor(Math.random() * rutasDeBusqueda.length)];
@@ -78,7 +64,6 @@ async function runScraper() {
     console.log(`🎯 [PASO 2] Conectando a ML (Timeout 15s): ${searchUrl}`);
     
     try {
-        // ⏱️ TIMEOUT AGREGADO: Si en 15 segundos no responde, cortamos la llamada
         const resp = await axios.get(searchUrl, { 
             maxRedirects: 3, 
             headers: headersHumanos,
@@ -127,7 +112,9 @@ async function runScraper() {
                 }
 
                 console.log(`✨ Procesando con IA y acortando link...`);
-                const linkLargo = `${prod.linkOriginalLimpio}?matt_tool=${process.env.ML_MATT_TOOL}&matt_word=${process.env.ML_MATT_WORD}`;
+                
+                // 🛠️ NUEVO GENERADOR DE ENLACE DE AFILIADO
+                const linkLargo = `${prod.linkOriginalLimpio}?matt_d2id=${process.env.ML_MATT_D2ID}&matt_event_ts=${Date.now()}`;
                 
                 const [linkCorto, marketingData] = await Promise.all([
                     acortarLink(linkLargo),
@@ -157,9 +144,8 @@ async function runScraper() {
         }
         console.log(`🏁 Fin. ${guardadosNuevos} productos listos para publicar.`);
     } catch (e) { 
-        // Aquí capturamos el Timeout si Mercado Libre intenta dejarnos colgados
         if (e.code === 'ECONNABORTED') {
-            console.error("❌ TIMEOUT: Mercado Libre no respondió en 15 segundos (Posible Tarpit).");
+            console.error("❌ TIMEOUT: Mercado Libre no respondió en 15 segundos.");
         } else {
             console.error("❌ Error en conexión principal:", e.message); 
         }

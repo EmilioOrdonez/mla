@@ -16,7 +16,6 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
-// ✂️ ACORTADOR DE LINK
 async function acortarLink(urlLarga) {
     try {
         const res = await axios.get(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(urlLarga)}`, { timeout: 10000 });
@@ -24,21 +23,19 @@ async function acortarLink(urlLarga) {
     } catch (e) { return urlLarga; }
 }
 
-// 🧠 CEREBRO DE MARKETING CON IA (GEMINI 2.5 FLASH)
 async function generarMarketingIA(titulo) {
     try {
         const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-        const prompt = `Eres un copywriter experto en comercio electrónico. Analiza este producto: "${titulo}".
-        Genera:
-        1. Una frase persuasiva y corta (máximo 12 palabras) con 1 emoji.
-        2. Tres hashtags ultra relevantes en formato #CamelCase.
-        Devuelve ÚNICAMENTE un JSON válido: {"frase": "frase aquí", "hashtags": "#Tag1 #Tag2 #Tag3"}`;
+        const prompt = `Eres un copywriter experto. Analiza este producto: "${titulo}". Genera:
+        1. Una frase persuasiva y corta con 1 emoji.
+        2. Tres hashtags GENÉRICOS de macro-categoría (Ejemplo: #Tecnologia, #Celulares, #Hogar). PROHIBIDO usar nombres de modelos específicos.
+        Devuelve ÚNICAMENTE JSON: {"frase": "frase aquí", "hashtags": "#Tag1 #Tag2 #Tag3"}`;
         
         const result = await model.generateContent(prompt);
         const jsonString = result.response.text().replace(/```(json)?/gi, '').trim();
         return JSON.parse(jsonString);
     } catch (e) {
-        return { frase: "¡No dejes escapar esta oportunidad única! ⏳", hashtags: "#Oferta #Descuento #CompraInteligente" };
+        return { frase: "¡Aprovecha esta increíble oportunidad hoy! 🚀", hashtags: "#Ofertas #Compras #MercadoLibre" };
     }
 }
 
@@ -61,20 +58,21 @@ app.post('/api/manual', async (req, res) => {
     for (const url of urls) {
         try {
             const resp = await axios.get(url, { maxRedirects: 5, headers: { 'User-Agent': 'Mozilla/5.0' } });
-            let realUrl = resp.request.res.responseUrl;
-            
-            // 🛠️ LÓGICA CORREGIDA: link_original ahora guarda la URL limpia (sin ?)
+            let realUrl = resp.request?.res?.responseUrl || url;
             const linkOriginalLimpio = realUrl.split('?')[0];
             
             const $ = cheerio.load(resp.data);
             let titulo = $('meta[property="og:title"]').attr('content') || $('h1').text().trim();
             if(titulo.includes(' - $')) titulo = titulo.split(' - $')[0];
-            let precioOf = $('.andes-money-amount__fraction').not('.andes-money-amount--previous .andes-money-amount__fraction').first().text().replace(/,/g, '');
-            let precioOrig = $('.andes-money-amount--previous .andes-money-amount__fraction').first().text().replace(/,/g, '') || precioOf;
             
-            const urlObj = new URL(realUrl);
-            urlObj.searchParams.set('matt_tool', process.env.ML_MATT_TOOL);
-            urlObj.searchParams.set('matt_word', process.env.ML_MATT_WORD);
+            let precioOferta = $('.andes-money-amount__fraction').not('.andes-money-amount--previous .andes-money-amount__fraction').first().text().replace(/,/g, '');
+            let precioOriginal = $('.andes-money-amount--previous .andes-money-amount__fraction').first().text().replace(/,/g, '');
+            if(!precioOriginal) precioOriginal = precioOferta;
+            
+            // 🛠️ NUEVO GENERADOR DE ENLACE DE AFILIADO (Sistema Creadores)
+            const urlObj = new URL(linkOriginalLimpio);
+            urlObj.searchParams.set('matt_d2id', process.env.ML_MATT_D2ID);
+            urlObj.searchParams.set('matt_event_ts', Date.now().toString());
             const linkLargoAfiliado = urlObj.toString();
             
             const [linkCorto, marketingData] = await Promise.all([
@@ -84,9 +82,9 @@ app.post('/api/manual', async (req, res) => {
 
             const { data, error } = await supabase.from('ofertas').upsert({
                 producto: titulo, 
-                precio_original: parseFloat(precioOrig), 
-                precio_oferta: parseFloat(precioOf),
-                link_original: linkOriginalLimpio, // 👈 Se guarda la URL original limpia
+                precio_original: parseFloat(precioOriginal), 
+                precio_oferta: parseFloat(precioOferta),
+                link_original: linkOriginalLimpio, 
                 link_afiliado: linkLargoAfiliado, 
                 link_corto: linkCorto,
                 hashtags: marketingData.hashtags,
