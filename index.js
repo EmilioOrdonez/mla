@@ -16,9 +16,12 @@ const headersHumanos = {
 
 async function acortarLink(urlLarga) {
     try {
-        const res = await axios.get(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(urlLarga)}`, { timeout: 10000 });
-        return (res.data && res.data.startsWith('http')) ? res.data : urlLarga;
-    } catch (e) { return urlLarga; }
+        // Cambiamos a is.gd: Redirección directa sin pantallas de advertencia
+        const res = await axios.get(`https://is.gd/create.php?format=simple&url=${encodeURIComponent(urlLarga)}`, { timeout: 10000 });
+        return (res.data && res.data.startsWith('http')) ? res.data.trim() : urlLarga;
+    } catch (e) { 
+        return urlLarga; 
+    }
 }
 
 async function generarMarketingIA(titulo) {
