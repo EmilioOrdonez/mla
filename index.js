@@ -1,21 +1,61 @@
+const axios = require('axios');
+const cheerio = require('cheerio');
+const { createClient } = require('@supabase/supabase-js');
+const { GoogleGenerativeAI } = require("@google/generative-ai");
+require('dotenv').config();
+
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+
+async function acortarLink(urlLarga) {
+    try {
+        const res = await axios.get(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(urlLarga)}`, { timeout: 10000 });
+        return (res.data && res.data.startsWith('http')) ? res.data : urlLarga;
+    } catch (e) { return urlLarga; }
+}
+
+async function generarMarketingIA(titulo) {
+    try {
+        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+        const prompt = `Eres un copywriter experto. Analiza este producto: "${titulo}". Genera:
+        1. Una frase persuasiva y corta con 1 emoji.
+        2. Tres hashtags relevantes en #CamelCase.
+        Devuelve ÚNICAMENTE JSON: {"frase": "frase aquí", "hashtags": "#Tag1 #Tag2 #Tag3"}`;
+        
+        const result = await model.generateContent(prompt);
+        const jsonString = result.response.text().replace(/```(json)?/gi, '').trim();
+        return JSON.parse(jsonString);
+    } catch (e) {
+        return { frase: "¡Adquiere el tuyo hoy antes de que cambie el precio! 🚀", hashtags: "#Oferta #Descuento #Shopping" };
+    }
+}
+
+function mezclarArreglo(array) {
+    for (let i = array.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [array[i], array[j]] = [array[j], array[i]];
+    }
+    return array;
+}
+
 async function runScraper() {
     console.log("🚀 [PASO 1] Iniciando búsqueda automática multipista...");
     
     // 🗂️ BATERÍA DE RUTAS ESTRUCTURALES
     const rutasDeBusqueda = [
-        "https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=1",
-        "https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=2",
-        "https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=3",
-        "https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=4",
-        "https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=5",
-        "https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=6",
-        "https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=7",
-        "https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=8"
+        "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=1](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=1)",
+        "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=2](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=2)",
+        "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=3](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=3)",
+        "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=4](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=4)",
+        "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=5](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=5)",
+        "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=6](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=6)",
+        "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=7](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=7)",
+        "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=8](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=8)"
     ];
 
     let searchUrlRaw = rutasDeBusqueda[Math.floor(Math.random() * rutasDeBusqueda.length)];
     
-    // 🛡️ ESCUDO ANTI-MARKDOWN: Si el enlace se pegó con corchetes [url](url), extraemos solo el texto limpio
+    // 🛡️ ESCUDO ANTI-MARKDOWN
     if (searchUrlRaw.startsWith('[')) {
         const match = searchUrlRaw.match(/\(([^)]+)\)/);
         if (match) searchUrlRaw = match[1];
@@ -122,3 +162,6 @@ async function runScraper() {
         console.error("❌ Error CRÍTICO en scraper principal:", e.message); 
     }
 }
+
+// EL PUENTE DE EXPORTACIÓN (¡La pieza que faltaba!)
+module.exports = { runScraper };
