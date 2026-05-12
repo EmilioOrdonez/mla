@@ -24,10 +24,9 @@ async function acortarLink(urlLarga) {
 async function generarMarketingIA(titulo) {
     try {
         const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-        // 🧠 PROMPT MEJORADO: Orientado a Macro-Categorías SEO
         const prompt = `Eres un copywriter experto. Analiza este producto: "${titulo}". Genera:
         1. Una frase persuasiva y corta con 1 emoji.
-        2. Tres hashtags GENÉRICOS de macro-categoría (Ejemplo: #Tecnologia, #Celulares, #Hogar, #Herramientas, #Moda). PROHIBIDO usar nombres de modelos específicos o características técnicas en los hashtags.
+        2. Tres hashtags GENÉRICOS de macro-categoría (Ejemplo: #Tecnologia, #Celulares, #Hogar, #Herramientas, #Moda). PROHIBIDO usar nombres de modelos específicos.
         Devuelve ÚNICAMENTE JSON: {"frase": "frase aquí", "hashtags": "#Tag1 #Tag2 #Tag3"}`;
         
         const result = await model.generateContent(prompt);
@@ -47,7 +46,7 @@ function mezclarArreglo(array) {
 }
 
 async function runScraper() {
-    console.log("🚀 Iniciando búsqueda automática...");
+    console.log("🚀 [PASO 1] Iniciando búsqueda automática (Grid Scraping)...");
     
     const rutasDeBusqueda = [
         "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=1](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=1)",
@@ -60,7 +59,7 @@ async function runScraper() {
         "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=8](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=8)",
         "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=9](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=9)",
         "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=10](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=10)",
-        "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=11](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=11)",
+        "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=11](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=11)",  
         "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=12](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=12)",
         "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=13](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=13)",
         "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=14](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=14)",
@@ -69,16 +68,25 @@ async function runScraper() {
         "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=17](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=17)",
         "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=18](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=18)",
         "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=19](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=19)",
-        "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=20](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=20)",
-        "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=21](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=21)"
+        "[https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=20](https://www.mercadolibre.com.mx/ofertas?container_id=OFFERS_LIST&page=20)"
     ];
 
     let searchUrlRaw = rutasDeBusqueda[Math.floor(Math.random() * rutasDeBusqueda.length)];
     if (searchUrlRaw.startsWith('[')) searchUrlRaw = searchUrlRaw.match(/\(([^)]+)\)/)[1];
     const searchUrl = new URL(searchUrlRaw.trim()).href;
     
+    console.log(`🎯 [PASO 2] Conectando a ML (Timeout 15s): ${searchUrl}`);
+    
     try {
-        const resp = await axios.get(searchUrl, { maxRedirects: 3, headers: headersHumanos });
+        // ⏱️ TIMEOUT AGREGADO: Si en 15 segundos no responde, cortamos la llamada
+        const resp = await axios.get(searchUrl, { 
+            maxRedirects: 3, 
+            headers: headersHumanos,
+            timeout: 15000 
+        });
+        
+        console.log("✅ [PASO 3] Página descargada. Extrayendo tarjetas de ofertas...");
+        
         const $ = cheerio.load(resp.data);
         let productosExtraidos = [];
 
@@ -90,13 +98,9 @@ async function runScraper() {
 
             let titulo = card.find('.poly-component__title, .promotion-item__title, .ui-search-item__title, h2').first().text().trim();
             
-            // 🛠️ LÓGICA DE PRECIOS MEJORADA (Separa Precio Original de Oferta)
-            // Busca la clase específica del precio tachado anterior
             let precioOriginal = card.find('.andes-money-amount--previous .andes-money-amount__fraction').first().text().replace(/,/g, '');
-            // Busca el precio actual excluyendo la clase del tachado
             let precioOferta = card.find('.andes-money-amount__fraction').not('.andes-money-amount--previous .andes-money-amount__fraction').first().text().replace(/,/g, '');
 
-            // Si no hay precio tachado, significa que no hay descuento, ambos precios son iguales
             if (!precioOriginal) precioOriginal = precioOferta;
 
             let imagen = card.find('img').attr('data-src') || card.find('img').attr('src') || '';
@@ -106,16 +110,25 @@ async function runScraper() {
             }
         });
 
-        if (productosExtraidos.length === 0) return console.log("⚠️ La página no devolvió tarjetas válidas.");
+        console.log(`📦 [PASO 4] Tarjetas extraídas válidas: ${productosExtraidos.length}`);
+
+        if (productosExtraidos.length === 0) return console.log("⚠️ No hay tarjetas. Posible CAPTCHA o cambio de diseño.");
 
         productosExtraidos = mezclarArreglo(productosExtraidos);
+        let guardadosNuevos = 0;
 
         for(const prod of productosExtraidos.slice(0, 5)) {
             try {
+                console.log(`🔍 [PASO 5] Revisando si existe en DB: ${prod.titulo}`);
                 const { data: existe } = await supabase.from('ofertas').select('id').eq('link_original', prod.linkOriginalLimpio).single();
-                if (existe) continue; 
+                if (existe) {
+                    console.log(`⏩ Saltando (Ya existe)`);
+                    continue; 
+                }
 
+                console.log(`✨ Procesando con IA y acortando link...`);
                 const linkLargo = `${prod.linkOriginalLimpio}?matt_tool=${process.env.ML_MATT_TOOL}&matt_word=${process.env.ML_MATT_WORD}`;
+                
                 const [linkCorto, marketingData] = await Promise.all([
                     acortarLink(linkLargo),
                     generarMarketingIA(prod.titulo)
@@ -124,7 +137,7 @@ async function runScraper() {
                 await supabase.from('ofertas').upsert({
                     producto: prod.titulo, 
                     precio_oferta: parseFloat(prod.precioOferta),
-                    precio_original: parseFloat(prod.precioOriginal), // 👈 Ahora se guardan separados
+                    precio_original: parseFloat(prod.precioOriginal), 
                     link_original: prod.linkOriginalLimpio, 
                     link_afiliado: linkLargo, 
                     link_corto: linkCorto,
@@ -137,10 +150,20 @@ async function runScraper() {
                     fecha_mexico: new Date().toLocaleString("en-US", {timeZone: "America/Mexico_City"})
                 }, { onConflict: 'link_original' });
 
+                console.log(`✅ Guardado Exitoso`);
+                guardadosNuevos++;
                 await new Promise(r => setTimeout(r, 2000));
-            } catch (innerError) { console.error(`❌ Falló guardado.`); }
+            } catch (innerError) { console.error(`❌ Falló guardado individual.`); }
         }
-    } catch (e) { console.error("❌ Error en scraper principal:", e.message); }
+        console.log(`🏁 Fin. ${guardadosNuevos} productos listos para publicar.`);
+    } catch (e) { 
+        // Aquí capturamos el Timeout si Mercado Libre intenta dejarnos colgados
+        if (e.code === 'ECONNABORTED') {
+            console.error("❌ TIMEOUT: Mercado Libre no respondió en 15 segundos (Posible Tarpit).");
+        } else {
+            console.error("❌ Error en conexión principal:", e.message); 
+        }
+    }
 }
 
 module.exports = { runScraper };
