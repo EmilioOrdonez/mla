@@ -14,7 +14,6 @@ const headersHumanos = {
     'Upgrade-Insecure-Requests': '1'
 };
 
-// ✅ MOTOR DE ACORTADO: IS.GD (Redirección directa sin pantallas intermedias)
 async function acortarLink(urlLarga) {
     try {
         const res = await axios.get(`https://is.gd/create.php?format=simple&url=${encodeURIComponent(urlLarga)}`, { timeout: 10000 });
@@ -22,20 +21,31 @@ async function acortarLink(urlLarga) {
     } catch (e) { return urlLarga; }
 }
 
-async function generarMarketingIA(titulo) {
+// 🧠 IA NIVEL DIOS: Procesa arreglos (arrays) enteros en una sola llamada
+async function generarMarketingIABatch(titulos) {
     try {
         const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-        const prompt = `Eres un copywriter experto. Analiza este producto: "${titulo}". Genera:
-        1. Una frase persuasiva, creativa y corta con 1 emoji. OBLIGATORIO: Varía tu estilo para que no suene repetitivo.
+        const prompt = `Eres un copywriter experto. Analiza la siguiente lista de productos numerados.
+        Genera para CADA UNO:
+        1. Una frase persuasiva, creativa y corta con 1 emoji. Varía el estilo entre ellos.
         2. Tres hashtags GENÉRICOS de macro-categoría (Ej: #Tecnologia, #Hogar). PROHIBIDO usar modelos específicos.
-        Devuelve ÚNICAMENTE JSON: {"frase": "frase aquí", "hashtags": "#Tag1 #Tag2 #Tag3"}`;
+        
+        Devuelve ÚNICAMENTE un JSON con un arreglo (array) respetando el orden exacto. Formato:
+        [
+          {"frase": "frase prod 1", "hashtags": "#Tag1 #Tag2 #Tag3"},
+          {"frase": "frase prod 2", "hashtags": "#Tag1 #Tag2 #Tag3"}
+        ]
+        
+        Productos a analizar:
+        ${titulos.map((t, i) => `${i + 1}. ${t}`).join('\n')}`;
         
         const result = await model.generateContent(prompt);
         const jsonString = result.response.text().replace(/```(json)?/gi, '').trim();
-        return JSON.parse(jsonString);
+        return JSON.parse(jsonString); 
     } catch (e) {
-        console.error("⚠️ Error en Gemini API:", e.message);
-        return { frase: "¡Descubre esta gran oferta antes de que se agote! ⚡", hashtags: "#Oferta #Compras #MercadoLibre" };
+        console.error("⚠️ Error en Gemini API Batch:", e.message);
+        // Si falla, devuelve un arreglo de respaldos genéricos para no detener el sistema
+        return titulos.map(() => ({ frase: "¡Descubre esta gran oferta hoy! ⚡", hashtags: "#Oferta #Compras #MercadoLibre" }));
     }
 }
 
@@ -46,7 +56,7 @@ async function esProductoPermitido(titulo) {
         const tituloMinus = titulo.toLowerCase();
         const prohibida = exclusiones.find(e => tituloMinus.includes(e.termino.toLowerCase()));
         if (prohibida) {
-            console.log(`🚫 Bloqueado por exclusión de Facebook: "${prohibida.termino}" -> ${titulo}`);
+            console.log(`🚫 Bloqueado por exclusión de FB: "${prohibida.termino}" -> ${titulo}`);
             return false;
         }
         return true;
@@ -62,30 +72,14 @@ function mezclarArreglo(array) {
 }
 
 async function runScraper() {
-    console.log("🚀 [PASO 1] Iniciando búsqueda dinámica desde Supabase...");
+    console.log("🚀 [PASO 1] Iniciando búsqueda dinámica en Supabase...");
     
     try {
-        // 🛠️ CONSULTA CON DIAGNÓSTICO PARA DETECTAR FALLOS
-        const { data: categorias, error: errCat } = await supabase
-            .from('categorias_busqueda')
-            .select('*');
+        const { data: categorias, error: errCat } = await supabase.from('categorias_busqueda').select('*');
+        if (errCat) return console.error("❌ Error de lectura en Supabase:", errCat.message);
 
-        if (errCat) {
-            console.error("❌ Error de lectura en Supabase:", errCat.message);
-            console.error("Detalle:", errCat.details);
-            return;
-        }
-
-        // Filtramos asegurándonos de atrapar tanto booleanos como textos
         const activas = categorias.filter(c => c.activa === true || c.activa === 'true');
-
-        if (activas.length === 0) {
-            console.log(`⚠️ Tablas leídas en total: ${categorias.length}`);
-            if (categorias.length > 0) {
-                console.log("📋 Estructura de la primera fila leída:", categorias[0]);
-            }
-            return console.log("⚠️ No hay categorías marcadas como 'activa' en Supabase.");
-        }
+        if (activas.length === 0) return console.log("⚠️ No hay categorías activas en Supabase.");
 
         const randomCat = activas[Math.floor(Math.random() * activas.length)];
         const searchUrl = new URL(randomCat.url_mercadolibre.trim()).href;
@@ -111,26 +105,40 @@ async function runScraper() {
             }
         });
 
-        console.log(`📦 [PASO 3] Se extrajeron ${productosExtraidos.length} tarjetas de producto.`);
-
         productosExtraidos = mezclarArreglo(productosExtraidos);
+        
+        console.log(`📦 [PASO 3] Filtrando candidatos ideales...`);
+        let productosAProcesar = [];
+
+        // 🛡️ PRE-FILTRO: Seleccionamos solo 5 productos que NO existan y NO estén bloqueados
+        for(const prod of productosExtraidos) {
+            if (productosAProcesar.length >= 5) break; 
+            
+            if (!(await esProductoPermitido(prod.titulo))) continue;
+            
+            const { data: existe } = await supabase.from('ofertas').select('id').eq('link_original', prod.linkOriginalLimpio).single();
+            if (existe) continue;
+
+            productosAProcesar.push(prod);
+        }
+
+        if (productosAProcesar.length === 0) return console.log("⏩ No hay productos nuevos válidos en esta ronda.");
+
+        console.log(`🧠 [PASO 4] Llamando a la IA en Lote (1 petición para ${productosAProcesar.length} productos)...`);
+        
+        // ⚡ EL DISPARO ÚNICO
+        const titulosArray = productosAProcesar.map(p => p.titulo);
+        const resultadosIA = await generarMarketingIABatch(titulosArray);
+
         let guardadosNuevos = 0;
 
-        for(const prod of productosExtraidos.slice(0, 5)) {
+        for (let i = 0; i < productosAProcesar.length; i++) {
+            const prod = productosAProcesar[i];
+            const marketingData = resultadosIA[i] || { frase: "¡Oferta especial! ⚡", hashtags: "#Ofertas #MercadoLibre" };
+
             try {
-                // 🛡️ REVISIÓN EN LISTA NEGRA
-                if (!(await esProductoPermitido(prod.titulo))) continue;
-
-                const { data: existe } = await supabase.from('ofertas').select('id').eq('link_original', prod.linkOriginalLimpio).single();
-                if (existe) continue;
-
-                // 🛠️ GENERACIÓN DEL ENLACE DE AFILIADO (Sistema Nuevo Creadores)
                 const linkLargo = `${prod.linkOriginalLimpio}?matt_d2id=${process.env.ML_MATT_D2ID}&matt_event_ts=${Date.now()}`;
-                
-                const [linkCorto, marketingData] = await Promise.all([
-                    acortarLink(linkLargo),
-                    generarMarketingIA(prod.titulo)
-                ]);
+                const linkCorto = await acortarLink(linkLargo);
 
                 await supabase.from('ofertas').upsert({
                     producto: prod.titulo, 
@@ -149,11 +157,12 @@ async function runScraper() {
                 }, { onConflict: 'link_original' });
 
                 guardadosNuevos++;
-                await new Promise(r => setTimeout(r, 2500));
-            } catch (e) { console.error("❌ Error en registro individual."); }
+                await new Promise(r => setTimeout(r, 1500)); // Pausa breve para no saturar is.gd
+            } catch (e) { console.error(`❌ Error guardando: ${prod.titulo}`); }
         }
-        console.log(`🏁 Fin. ${guardadosNuevos} productos nuevos listos.`);
-    } catch (e) { console.error("❌ Error crítico en scraper principal."); }
+        
+        console.log(`🏁 Fin. ${guardadosNuevos} productos procesados en tiempo récord.`);
+    } catch (e) { console.error("❌ Error crítico en scraper dinámico."); }
 }
 
 module.exports = { runScraper };
