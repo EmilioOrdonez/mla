@@ -21,24 +21,28 @@ async function acortarLink(urlLarga) {
         // Cambiamos a is.gd: Redirección directa sin pantallas de advertencia
         const res = await axios.get(`https://is.gd/create.php?format=simple&url=${encodeURIComponent(urlLarga)}`, { timeout: 10000 });
         return (res.data && res.data.startsWith('http')) ? res.data.trim() : urlLarga;
-    } catch (e) { 
-        return urlLarga; 
+    } catch (e) {
+        return urlLarga;
     }
 }
 
 async function generarMarketingIA(titulo) {
     try {
         const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+        // 🧠 Prompt ajustado para forzar la variedad semántica
         const prompt = `Eres un copywriter experto. Analiza este producto: "${titulo}". Genera:
-        1. Una frase persuasiva y corta con 1 emoji.
-        2. Tres hashtags GENÉRICOS de macro-categoría (Ejemplo: #Tecnologia, #Celulares, #Hogar). PROHIBIDO usar nombres de modelos específicos.
+        1. Una frase persuasiva, creativa y corta con 1 emoji. OBLIGATORIO: Varía tu estilo, tono y estructura para que ninguna frase suene igual a otra.
+        2. Tres hashtags GENÉRICOS de macro-categoría (Ejemplo: #Tecnologia, #Hogar, #OfertasTech). PROHIBIDO usar nombres de modelos específicos.
         Devuelve ÚNICAMENTE JSON: {"frase": "frase aquí", "hashtags": "#Tag1 #Tag2 #Tag3"}`;
-        
+
         const result = await model.generateContent(prompt);
         const jsonString = result.response.text().replace(/```(json)?/gi, '').trim();
         return JSON.parse(jsonString);
     } catch (e) {
-        return { frase: "¡Aprovecha esta increíble oportunidad hoy! 🚀", hashtags: "#Ofertas #Compras #MercadoLibre" };
+        // 📡 EL DETECTIVE: Esto imprimirá el motivo real por el que Google rechaza la conexión
+        console.error(`⚠️ Error en Gemini API para "${titulo.substring(0, 20)}...":`, e.message);
+
+        return { frase: "¡Descubre esta gran oferta antes de que se agote! ⚡", hashtags: "#OfertaEspecial #Compras #MercadoLibre" };
     }
 }
 
@@ -51,59 +55,64 @@ app.get('/', async (req, res) => {
         const { count: total } = await supabase.from('ofertas').select('*', { count: 'exact', head: true });
         const { count: enviadas } = await supabase.from('ofertas').select('*', { count: 'exact', head: true }).eq('enviado', true);
         const { count: pendientes } = await supabase.from('ofertas').select('*', { count: 'exact', head: true }).eq('enviado', false);
-        res.send(`${UI_STYLE}<div class="container"><h1>GENESYS <span style="color:#fff">DIGITAL</span></h1><div class="dashboard"><div class="stat-box"><div class="stat-num">${total||0}</div><div class="stat-label">Total</div></div><div class="stat-box" style="color:var(--success)"><div class="stat-num">${enviadas||0}</div><div class="stat-label">Publicados</div></div><div class="stat-box" style="color:var(--warning)"><div class="stat-num">${pendientes||0}</div><div class="stat-label">En Cola</div></div></div><form id="form-manual" action="/api/manual" method="POST"><textarea id="urls-input" name="urls" rows="5" placeholder="Pega los links meli.la aquí..." required></textarea><button type="button" id="btn-procesar" class="btn btn-primary" onclick="showLoading()"><span id="spinner" class="spinner"></span><span id="btn-text">🚀 PROCESAR Y ACORTAR</span></button></form><div class="grid"><a href="/api/buscar" class="btn btn-back" style="color: #28a745;">🔍 AUTO SEARCH</a><a href="/api/publicar" class="btn btn-back" style="color: #6f42c1;">📤 PUBLICAR YA</a></div></div>${UI_FOOTER}`);
+        res.send(`${UI_STYLE}<div class="container"><h1>GENESYS <span style="color:#fff">DIGITAL</span></h1><div class="dashboard"><div class="stat-box"><div class="stat-num">${total || 0}</div><div class="stat-label">Total</div></div><div class="stat-box" style="color:var(--success)"><div class="stat-num">${enviadas || 0}</div><div class="stat-label">Publicados</div></div><div class="stat-box" style="color:var(--warning)"><div class="stat-num">${pendientes || 0}</div><div class="stat-label">En Cola</div></div></div><form id="form-manual" action="/api/manual" method="POST"><textarea id="urls-input" name="urls" rows="5" placeholder="Pega los links meli.la aquí..." required></textarea><button type="button" id="btn-procesar" class="btn btn-primary" onclick="showLoading()"><span id="spinner" class="spinner"></span><span id="btn-text">🚀 PROCESAR Y ACORTAR</span></button></form><div class="grid"><a href="/api/buscar" class="btn btn-back" style="color: #28a745;">🔍 AUTO SEARCH</a><a href="/api/publicar" class="btn btn-back" style="color: #6f42c1;">📤 PUBLICAR YA</a></div></div>${UI_FOOTER}`);
     } catch (e) { res.status(500).send("Error de DB"); }
 });
 
 app.post('/api/manual', async (req, res) => {
     const urls = req.body.urls.split(/\r?\n/).map(u => u.trim()).filter(u => u.length > 0);
     let resultados = [];
+
     for (const url of urls) {
         try {
             const resp = await axios.get(url, { maxRedirects: 5, headers: { 'User-Agent': 'Mozilla/5.0' } });
             let realUrl = resp.request?.res?.responseUrl || url;
             const linkOriginalLimpio = realUrl.split('?')[0];
-            
+
             const $ = cheerio.load(resp.data);
             let titulo = $('meta[property="og:title"]').attr('content') || $('h1').text().trim();
-            if(titulo.includes(' - $')) titulo = titulo.split(' - $')[0];
-            
-            let precioOferta = $('.andes-money-amount__fraction').not('.andes-money-amount--previous .andes-money-amount__fraction').first().text().replace(/,/g, '');
-            let precioOriginal = $('.andes-money-amount--previous .andes-money-amount__fraction').first().text().replace(/,/g, '');
-            if(!precioOriginal) precioOriginal = precioOferta;
-            
-            // 🛠️ NUEVO GENERADOR DE ENLACE DE AFILIADO (Sistema Creadores)
-            const urlObj = new URL(linkOriginalLimpio);
-            urlObj.searchParams.set('matt_d2id', process.env.ML_MATT_D2ID);
-            urlObj.searchParams.set('matt_event_ts', Date.now().toString());
-            const linkLargoAfiliado = urlObj.toString();
-            
-            const [linkCorto, marketingData] = await Promise.all([
-                acortarLink(linkLargoAfiliado),
-                generarMarketingIA(titulo)
-            ]);
+            if (titulo.includes(' - $')) titulo = titulo.split(' - $')[0];
 
-            const { data, error } = await supabase.from('ofertas').upsert({
-                producto: titulo, 
-                precio_original: parseFloat(precioOriginal), 
-                precio_oferta: parseFloat(precioOferta),
-                link_original: linkOriginalLimpio, 
-                link_afiliado: linkLargoAfiliado, 
-                link_corto: linkCorto,
-                hashtags: marketingData.hashtags,
-                frase_persuasiva: marketingData.frase,
+            let precioOferta = $('.andes-money-amount__fraction').not('.andes-money-amount--previous .andes-money-amount__fraction').first().text().replace(/,/g, '');
+            let precioOriginal = $('.andes-money-amount--previous .andes-money-amount__fraction').first().text().replace(/,/g, '') || precioOferta;
+
+            // ⚡ LÓGICA DE RESPETO A meli.la
+            let linkFinalAfiliado;
+            let linkParaBaseDeDatos;
+
+            if (url.includes('meli.la')) {
+                // Si ya viene acortado de la app, lo usamos tal cual
+                linkFinalAfiliado = url;
+                linkParaBaseDeDatos = url;
+                console.log(`✅ Respetando enlace corto de la App: ${url}`);
+            } else {
+                // Si es un link largo, construimos el de afiliado y acortamos con is.gd
+                const urlObj = new URL(linkOriginalLimpio);
+                urlObj.searchParams.set('matt_d2id', process.env.ML_MATT_D2ID);
+                urlObj.searchParams.set('matt_event_ts', Date.now().toString());
+                linkFinalAfiliado = urlObj.toString();
+                linkParaBaseDeDatos = await acortarLink(linkFinalAfiliado);
+            }
+
+            const { error } = await supabase.from('ofertas').upsert({
+                producto: titulo,
+                precio_original: parseFloat(precioOriginal),
+                precio_oferta: parseFloat(precioOf),
+                link_original: linkOriginalLimpio,
+                link_afiliado: linkFinalAfiliado,
+                link_corto: linkParaBaseDeDatos, // 👈 Aquí se guarda el enlace final
                 imagen_url: $('meta[property="og:image"]').attr('content'),
-                status: 'Aprobado', 
-                enviado: false, 
+                status: 'Aprobado',
+                enviado: false,
                 fuente: 'Manual',
-                fecha_mexico: new Date().toLocaleString("en-US", {timeZone: "America/Mexico_City"})
-            }, { onConflict: 'link_original' }).select();
-            
+                fecha_mexico: new Date().toLocaleString("en-US", { timeZone: "America/Mexico_City" })
+            }, { onConflict: 'link_original' });
+
             resultados.push({ status: error ? 'error' : 'success', prod: titulo });
             await sleep(3500);
         } catch (e) { resultados.push({ status: 'error', prod: url }); }
     }
-    res.send(`${UI_STYLE}<div class="container"><h2>📊 Reporte</h2>${resultados.map(r=>`<div class="card ${r.status}"><strong>${r.status=='success'?'✅':'❌'}</strong> ${r.prod}</div>`).join('')}<a href="/" class="btn btn-back">VOLVER AL PANEL</a></div>${UI_FOOTER}`);
+    res.send(`${UI_STYLE}<div class="container"><h2>📊 Reporte</h2>${resultados.map(r => `<div class="card ${r.status}"><strong>${r.status == 'success' ? '✅' : '❌'}</strong> ${r.prod}</div>`).join('')}<a href="/" class="btn btn-back">VOLVER AL PANEL</a></div>${UI_FOOTER}`);
 });
 
 app.get('/api/buscar', async (req, res) => { res.send("Buscando..."); await runScraper(); });

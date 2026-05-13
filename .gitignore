@@ -9,3 +9,6 @@ npm-debug.log
 .DS_Store
 Thumbs.db
 test.js
+
+# Carpetas de producción
+respaldo/
