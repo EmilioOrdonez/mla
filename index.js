@@ -14,7 +14,7 @@ const headersHumanos = {
     'Upgrade-Insecure-Requests': '1'
 };
 
-// ✅ MOTOR DE ACORTADO: IS.GD (Redirección directa)
+// ✅ MOTOR DE ACORTADO: IS.GD (Redirección directa sin pantallas intermedias)
 async function acortarLink(urlLarga) {
     try {
         const res = await axios.get(`https://is.gd/create.php?format=simple&url=${encodeURIComponent(urlLarga)}`, { timeout: 10000 });
@@ -29,7 +29,7 @@ async function generarMarketingIA(titulo) {
         1. Una frase persuasiva, creativa y corta con 1 emoji. OBLIGATORIO: Varía tu estilo para que no suene repetitivo.
         2. Tres hashtags GENÉRICOS de macro-categoría (Ej: #Tecnologia, #Hogar). PROHIBIDO usar modelos específicos.
         Devuelve ÚNICAMENTE JSON: {"frase": "frase aquí", "hashtags": "#Tag1 #Tag2 #Tag3"}`;
-
+        
         const result = await model.generateContent(prompt);
         const jsonString = result.response.text().replace(/```(json)?/gi, '').trim();
         return JSON.parse(jsonString);
@@ -46,7 +46,7 @@ async function esProductoPermitido(titulo) {
         const tituloMinus = titulo.toLowerCase();
         const prohibida = exclusiones.find(e => tituloMinus.includes(e.termino.toLowerCase()));
         if (prohibida) {
-            console.log(`🚫 Bloqueado por exclusión: "${prohibida.termino}" -> ${titulo}`);
+            console.log(`🚫 Bloqueado por exclusión de Facebook: "${prohibida.termino}" -> ${titulo}`);
             return false;
         }
         return true;
@@ -62,24 +62,36 @@ function mezclarArreglo(array) {
 }
 
 async function runScraper() {
-    console.log("🚀 [MODO AUTO] Iniciando búsqueda dinámica...");
-
+    console.log("🚀 [PASO 1] Iniciando búsqueda dinámica desde Supabase...");
+    
     try {
-        // 🛠️ OBTENER CATEGORÍAS DESDE SUPABASE
+        // 🛠️ CONSULTA CON DIAGNÓSTICO PARA DETECTAR FALLOS
         const { data: categorias, error: errCat } = await supabase
             .from('categorias_busqueda')
-            .select('url_mercadolibre')
-            .eq('activa', true);
+            .select('*');
 
-        if (errCat || !categorias || categorias.length === 0) {
-            return console.log("⚠️ No hay categorías activas en Supabase.");
+        if (errCat) {
+            console.error("❌ Error de lectura en Supabase:", errCat.message);
+            console.error("Detalle:", errCat.details);
+            return;
         }
 
-        const randomCat = categorias[Math.floor(Math.random() * categorias.length)];
+        // Filtramos asegurándonos de atrapar tanto booleanos como textos
+        const activas = categorias.filter(c => c.activa === true || c.activa === 'true');
+
+        if (activas.length === 0) {
+            console.log(`⚠️ Tablas leídas en total: ${categorias.length}`);
+            if (categorias.length > 0) {
+                console.log("📋 Estructura de la primera fila leída:", categorias[0]);
+            }
+            return console.log("⚠️ No hay categorías marcadas como 'activa' en Supabase.");
+        }
+
+        const randomCat = activas[Math.floor(Math.random() * activas.length)];
         const searchUrl = new URL(randomCat.url_mercadolibre.trim()).href;
-
-        console.log(`🎯 Explorando: ${searchUrl}`);
-
+        
+        console.log(`🎯 [PASO 2] Explorando categoría: ${searchUrl}`);
+        
         const resp = await axios.get(searchUrl, { maxRedirects: 3, headers: headersHumanos, timeout: 15000 });
         const $ = cheerio.load(resp.data);
         let productosExtraidos = [];
@@ -88,7 +100,7 @@ async function runScraper() {
             let card = $(el);
             let linkRaw = card.find('a').attr('href') || card.attr('href');
             if (!linkRaw || !linkRaw.startsWith('http') || linkRaw.includes('click1.mercadolibre')) return;
-
+            
             let titulo = card.find('.poly-component__title, .promotion-item__title, .ui-search-item__title, h2').first().text().trim();
             let precioOferta = card.find('.andes-money-amount__fraction').not('.andes-money-amount--previous .andes-money-amount__fraction').first().text().replace(/,/g, '');
             let precioOriginal = card.find('.andes-money-amount--previous .andes-money-amount__fraction').first().text().replace(/,/g, '') || precioOferta;
@@ -99,46 +111,49 @@ async function runScraper() {
             }
         });
 
+        console.log(`📦 [PASO 3] Se extrajeron ${productosExtraidos.length} tarjetas de producto.`);
+
         productosExtraidos = mezclarArreglo(productosExtraidos);
         let guardadosNuevos = 0;
 
-        for (const prod of productosExtraidos.slice(0, 5)) {
+        for(const prod of productosExtraidos.slice(0, 5)) {
             try {
+                // 🛡️ REVISIÓN EN LISTA NEGRA
                 if (!(await esProductoPermitido(prod.titulo))) continue;
 
                 const { data: existe } = await supabase.from('ofertas').select('id').eq('link_original', prod.linkOriginalLimpio).single();
                 if (existe) continue;
 
-                // 🛠️ ESTRUCTURA DE AFILIADO ACTUALIZADA (matt_d2id)
+                // 🛠️ GENERACIÓN DEL ENLACE DE AFILIADO (Sistema Nuevo Creadores)
                 const linkLargo = `${prod.linkOriginalLimpio}?matt_d2id=${process.env.ML_MATT_D2ID}&matt_event_ts=${Date.now()}`;
-
+                
                 const [linkCorto, marketingData] = await Promise.all([
                     acortarLink(linkLargo),
                     generarMarketingIA(prod.titulo)
                 ]);
 
                 await supabase.from('ofertas').upsert({
-                    producto: prod.titulo,
+                    producto: prod.titulo, 
                     precio_oferta: parseFloat(prod.precioOferta),
-                    precio_original: parseFloat(prod.precioOriginal),
-                    link_original: prod.linkOriginalLimpio,
-                    link_afiliado: linkLargo,
+                    precio_original: parseFloat(prod.precioOriginal), 
+                    link_original: prod.linkOriginalLimpio, 
+                    link_afiliado: linkLargo, 
                     link_corto: linkCorto,
                     hashtags: marketingData.hashtags,
                     frase_persuasiva: marketingData.frase,
                     imagen_url: prod.imagen,
-                    status: 'Aprobado',
-                    enviado: false,
+                    status: 'Aprobado', 
+                    enviado: false, 
                     fuente: 'Auto',
-                    fecha_mexico: new Date().toLocaleString("en-US", { timeZone: "America/Mexico_City" })
+                    fecha_mexico: new Date().toLocaleString("en-US", {timeZone: "America/Mexico_City"})
                 }, { onConflict: 'link_original' });
 
                 guardadosNuevos++;
                 await new Promise(r => setTimeout(r, 2500));
-            } catch (e) { console.error("❌ Error en registro."); }
+            } catch (e) { console.error("❌ Error en registro individual."); }
         }
-        console.log(`🏁 Fin. ${guardadosNuevos} productos nuevos.`);
-    } catch (e) { console.error("❌ Error crítico en scraper."); }
+        console.log(`🏁 Fin. ${guardadosNuevos} productos nuevos listos.`);
+    } catch (e) { console.error("❌ Error crítico en scraper principal."); }
 }
 
 module.exports = { runScraper };
