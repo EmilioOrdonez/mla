@@ -21,9 +21,16 @@ async function runScraper() {
         $('.poly-card, .promotion-item').each((i, el) => {
             const link = $(el).find('a').attr('href')?.split('?')[0];
             const titulo = $(el).find('.poly-component__title, .promotion-item__title').text().trim();
-            const precio = $(el).find('.andes-money-amount__fraction').not('.andes-money-amount--previous .andes-money-amount__fraction').first().text().replace(/,/g, '');
+            
+            // 🛠️ CORRECCIÓN: Extracción de ambos precios restaurada
+            const precioOferta = $(el).find('.andes-money-amount__fraction').not('.andes-money-amount--previous .andes-money-amount__fraction').first().text().replace(/,/g, '');
+            const precioOriginal = $(el).find('.andes-money-amount--previous .andes-money-amount__fraction').first().text().replace(/,/g, '') || precioOferta;
+            
             const img = $(el).find('img').attr('data-src') || $(el).find('img').attr('src');
-            if (link && titulo && precio) candidatos.push({ titulo, precio, link, img });
+            
+            if (link && titulo && precioOferta) {
+                candidatos.push({ titulo, precioOferta, precioOriginal, link, img });
+            }
         });
 
         console.log(`📦 Tarjetas crudas extraídas: ${candidatos.length}`);
@@ -56,8 +63,11 @@ async function runScraper() {
             const aff = `${p.link}?matt_d2id=${process.env.ML_MATT_D2ID}&matt_event_ts=${Date.now()}`;
             const short = await acortarLink(aff);
 
+            // 🛠️ CORRECCIÓN: Guardado de precio original en Supabase
             await supabase.from('ofertas').upsert({
-                producto: p.titulo, precio_oferta: parseFloat(p.precio),
+                producto: p.titulo, 
+                precio_oferta: parseFloat(p.precioOferta),
+                precio_original: parseFloat(p.precioOriginal),
                 link_original: p.link, link_afiliado: aff, link_corto: short,
                 frase_persuasiva: meta.frase, hashtags: meta.hashtags,
                 imagen_url: p.img, status: 'Aprobado', fuente: 'Auto',
