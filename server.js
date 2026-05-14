@@ -1,120 +1,69 @@
+// server.js
 const express = require('express');
-const axios = require('axios');
 const cheerio = require('cheerio');
-const { createClient } = require('@supabase/supabase-js');
-const { GoogleGenerativeAI } = require("@google/generative-ai");
+const axios = require('axios');
+const basicAuth = require('express-basic-auth');
 require('dotenv').config();
 
+const { supabase, acortarLink, generarMarketingIA, esProductoPermitido } = require('./servicios');
 const { runScraper } = require('./index');
 const { enviarOfertasAprobadas } = require('./publicador');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
-async function acortarLink(urlLarga) {
-    try {
-        // Cambiamos a is.gd: Redirección directa sin pantallas de advertencia
-        const res = await axios.get(`https://is.gd/create.php?format=simple&url=${encodeURIComponent(urlLarga)}`, { timeout: 10000 });
-        return (res.data && res.data.startsWith('http')) ? res.data.trim() : urlLarga;
-    } catch (e) {
-        return urlLarga;
-    }
+// 🔒 Login de Seguridad Avanzada
+if (process.env.ADMIN_USER && process.env.ADMIN_PASS) {
+    app.use(basicAuth({
+        users: { [process.env.ADMIN_USER]: process.env.ADMIN_PASS },
+        challenge: true,
+        realm: 'GenesysAdmin'
+    }));
 }
 
-async function generarMarketingIA(titulo) {
-    try {
-        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-        // 🧠 Prompt ajustado para forzar la variedad semántica
-        const prompt = `Eres un copywriter experto. Analiza este producto: "${titulo}". Genera:
-        1. Una frase persuasiva, creativa y corta con 1 emoji. OBLIGATORIO: Varía tu estilo, tono y estructura para que ninguna frase suene igual a otra.
-        2. Tres hashtags GENÉRICOS de macro-categoría (Ejemplo: #Tecnologia, #Hogar, #OfertasTech). PROHIBIDO usar nombres de modelos específicos.
-        Devuelve ÚNICAMENTE JSON: {"frase": "frase aquí", "hashtags": "#Tag1 #Tag2 #Tag3"}`;
-
-        const result = await model.generateContent(prompt);
-        const jsonString = result.response.text().replace(/```(json)?/gi, '').trim();
-        return JSON.parse(jsonString);
-    } catch (e) {
-        // 📡 EL DETECTIVE: Esto imprimirá el motivo real por el que Google rechaza la conexión
-        console.error(`⚠️ Error en Gemini API para "${titulo.substring(0, 20)}...":`, e.message);
-
-        return { frase: "¡Descubre esta gran oferta antes de que se agote! ⚡", hashtags: "#OfertaEspecial #Compras #MercadoLibre" };
-    }
-}
-
-const UI_STYLE = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Genesys Digital - Admin</title><style>:root { --primary: #00d2ff; --secondary: #3a7bd5; --dark: #1a1a2e; --success: #00f2fe; --error: #ff4b2b; --warning: #f6ad55; } body { font-family: 'Segoe UI', Roboto, sans-serif; background: var(--dark); color: white; margin: 0; display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 15px; box-sizing: border-box; } .container { width: 100%; max-width: 600px; background: #16213e; padding: 25px; border-radius: 24px; box-shadow: 0 15px 35px rgba(0,0,0,0.6); border: 1px solid #0f3460; text-align: center; } h1 { color: var(--primary); margin: 0; font-weight: 700; font-size: 1.6rem; } .dashboard { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 25px 0; } .stat-box { background: #0f3460; padding: 15px 5px; border-radius: 15px; border: 1px solid #1a1a2e; } .stat-num { font-size: 1.5rem; font-weight: bold; } .stat-label { font-size: 0.6rem; text-transform: uppercase; color: #888; margin-top: 5px; } textarea { width: 100%; background: #0f3460; border: 1px solid #1a1a2e; border-radius: 15px; color: #fff; padding: 15px; box-sizing: border-box; resize: none; margin-bottom: 15px; font-size: 0.9rem; } .btn { display: inline-flex; align-items: center; justify-content: center; padding: 15px 25px; border-radius: 50px; text-decoration: none; font-weight: bold; transition: 0.3s; cursor: pointer; border: none; font-size: 0.9rem; width: 100%; box-sizing: border-box; } .btn-primary { background: linear-gradient(45deg, var(--primary), var(--secondary)); color: #fff; margin-top: 5px; } .btn-back { background: #0f3460; color: #aaa; margin-top: 15px; border: 1px solid #1a1a2e; } .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 20px; } .card { background: #1a1a2e; padding: 15px; border-radius: 15px; text-align: left; border-left: 4px solid var(--primary); margin-bottom: 10px; font-size: 0.85rem; } .spinner { display: none; width: 18px; height: 18px; border: 3px solid rgba(255,255,255,0.3); border-radius: 50%; border-top-color: #fff; animation: spin 1s infinite; margin-right: 10px; } @keyframes spin { to { transform: rotate(360deg); } } </style><script>function showLoading(){const btn=document.getElementById('btn-procesar');const txt=document.getElementById('urls-input');if(txt.value.trim()==='')return;btn.disabled=true;document.getElementById('spinner').style.display='block';document.getElementById('btn-text').innerText='Analizando con IA...';document.getElementById('form-manual').submit();}</script></head><body>`;
-const UI_FOOTER = `</body></html>`;
-const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+// 🖥️ UI Estilo Genesys Digital
+const UI_HEAD = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Genesys Admin</title><style>body{background:#1a1a2e;color:#fff;font-family:sans-serif;text-align:center;padding:20px} .card{background:#16213e;padding:20px;border-radius:15px;max-width:500px;margin:auto;border:1px solid #0f3460} textarea{width:100%;background:#0f3460;color:#fff;border:none;padding:10px;border-radius:10px} .btn{display:block;width:100%;padding:12px;margin:10px 0;border-radius:25px;border:none;font-weight:bold;cursor:pointer;text-decoration:none} .btn-primary{background:#00d2ff;color:#fff}</style></head><body>`;
 
 app.get('/', async (req, res) => {
-    try {
-        const { count: total } = await supabase.from('ofertas').select('*', { count: 'exact', head: true });
-        const { count: enviadas } = await supabase.from('ofertas').select('*', { count: 'exact', head: true }).eq('enviado', true);
-        const { count: pendientes } = await supabase.from('ofertas').select('*', { count: 'exact', head: true }).eq('enviado', false);
-        res.send(`${UI_STYLE}<div class="container"><h1>GENESYS <span style="color:#fff">DIGITAL</span></h1><div class="dashboard"><div class="stat-box"><div class="stat-num">${total || 0}</div><div class="stat-label">Total</div></div><div class="stat-box" style="color:var(--success)"><div class="stat-num">${enviadas || 0}</div><div class="stat-label">Publicados</div></div><div class="stat-box" style="color:var(--warning)"><div class="stat-num">${pendientes || 0}</div><div class="stat-label">En Cola</div></div></div><form id="form-manual" action="/api/manual" method="POST"><textarea id="urls-input" name="urls" rows="5" placeholder="Pega los links meli.la aquí..." required></textarea><button type="button" id="btn-procesar" class="btn btn-primary" onclick="showLoading()"><span id="spinner" class="spinner"></span><span id="btn-text">🚀 PROCESAR Y ACORTAR</span></button></form><div class="grid"><a href="/api/buscar" class="btn btn-back" style="color: #28a745;">🔍 AUTO SEARCH</a><a href="/api/publicar" class="btn btn-back" style="color: #6f42c1;">📤 PUBLICAR YA</a></div></div>${UI_FOOTER}`);
-    } catch (e) { res.status(500).send("Error de DB"); }
+    const { count: pend } = await supabase.from('ofertas').select('*', { count: 'exact', head: true }).eq('enviado', false);
+    res.send(`${UI_HEAD}<div class="card"><h1>GENESYS <span style="color:#00d2ff">DIGITAL</span></h1><p>Pendientes: ${pend || 0}</p><form action="/api/manual" method="POST"><textarea name="urls" rows="4" placeholder="Links meli.la aquí..."></textarea><button class="btn btn-primary">PROCESAR MANUAL</button></form><a href="/api/buscar" class="btn" style="background:#28a745;color:#fff">AUTO SEARCH</a><a href="/api/publicar" class="btn" style="background:#6f42c1;color:#fff">PUBLICAR YA</a></div></body></html>`);
 });
 
+// ⚡ Proceso Manual Inteligente
 app.post('/api/manual', async (req, res) => {
-    const urls = req.body.urls.split(/\r?\n/).map(u => u.trim()).filter(u => u.length > 0);
-    let resultados = [];
-
+    const urls = req.body.urls.split(/\r?\n/).filter(u => u.trim().length > 0);
     for (const url of urls) {
         try {
-            const resp = await axios.get(url, { maxRedirects: 5, headers: { 'User-Agent': 'Mozilla/5.0' } });
-            let realUrl = resp.request?.res?.responseUrl || url;
-            const linkOriginalLimpio = realUrl.split('?')[0];
-
+            const resp = await axios.get(url, { headers: {'User-Agent': 'Mozilla/5.0'} });
             const $ = cheerio.load(resp.data);
-            let titulo = $('meta[property="og:title"]').attr('content') || $('h1').text().trim();
-            if (titulo.includes(' - $')) titulo = titulo.split(' - $')[0];
+            const titulo = $('meta[property="og:title"]').attr('content') || $('h1').text().trim();
+            
+            if (!(await esProductoPermitido(titulo))) continue;
 
-            let precioOferta = $('.andes-money-amount__fraction').not('.andes-money-amount--previous .andes-money-amount__fraction').first().text().replace(/,/g, '');
-            let precioOriginal = $('.andes-money-amount--previous .andes-money-amount__fraction').first().text().replace(/,/g, '') || precioOferta;
+            const mkt = await generarMarketingIA(titulo);
+            if (!mkt.seguro_para_fb) continue;
 
-            // ⚡ LÓGICA DE RESPETO A meli.la
-            let linkFinalAfiliado;
-            let linkParaBaseDeDatos;
-
+            let linkAff, linkShort;
             if (url.includes('meli.la')) {
-                // Si ya viene acortado de la app, lo usamos tal cual
-                linkFinalAfiliado = url;
-                linkParaBaseDeDatos = url;
-                console.log(`✅ Respetando enlace corto de la App: ${url}`);
+                linkAff = url; linkShort = url;
             } else {
-                // Si es un link largo, construimos el de afiliado y acortamos con is.gd
-                const urlObj = new URL(linkOriginalLimpio);
-                urlObj.searchParams.set('matt_d2id', process.env.ML_MATT_D2ID);
-                urlObj.searchParams.set('matt_event_ts', Date.now().toString());
-                linkFinalAfiliado = urlObj.toString();
-                linkParaBaseDeDatos = await acortarLink(linkFinalAfiliado);
+                linkAff = `${url.split('?')[0]}?matt_d2id=${process.env.ML_MATT_D2ID}&matt_event_ts=${Date.now()}`;
+                linkShort = await acortarLink(linkAff);
             }
 
-            const { error } = await supabase.from('ofertas').upsert({
-                producto: titulo,
-                precio_original: parseFloat(precioOriginal),
-                precio_oferta: parseFloat(precioOf),
-                link_original: linkOriginalLimpio,
-                link_afiliado: linkFinalAfiliado,
-                link_corto: linkParaBaseDeDatos, // 👈 Aquí se guarda el enlace final
-                imagen_url: $('meta[property="og:image"]').attr('content'),
-                status: 'Aprobado',
-                enviado: false,
-                fuente: 'Manual',
-                fecha_mexico: new Date().toLocaleString("en-US", { timeZone: "America/Mexico_City" })
-            }, { onConflict: 'link_original' });
-
-            resultados.push({ status: error ? 'error' : 'success', prod: titulo });
-            await sleep(3500);
-        } catch (e) { resultados.push({ status: 'error', prod: url }); }
+            await supabase.from('ofertas').upsert({
+                producto: titulo, link_original: url.split('?')[0],
+                link_afiliado: linkAff, link_corto: linkShort,
+                frase_persuasiva: mkt.frase, hashtags: mkt.hashtags,
+                status: 'Aprobado', fuente: 'Manual'
+            });
+        } catch (e) { console.error("Error manual"); }
     }
-    res.send(`${UI_STYLE}<div class="container"><h2>📊 Reporte</h2>${resultados.map(r => `<div class="card ${r.status}"><strong>${r.status == 'success' ? '✅' : '❌'}</strong> ${r.prod}</div>`).join('')}<a href="/" class="btn btn-back">VOLVER AL PANEL</a></div>${UI_FOOTER}`);
+    res.redirect('/');
 });
 
-app.get('/api/buscar', async (req, res) => { res.send("Buscando..."); await runScraper(); });
-app.get('/api/publicar', async (req, res) => { res.send("Publicando..."); await enviarOfertasAprobadas(); });
-app.listen(PORT, () => console.log(`🌐 Genesys Digital activo en puerto ${PORT}`));
+app.get('/api/buscar', async (req, res) => { res.send("Buscando..."); runScraper(); });
+app.get('/api/publicar', async (req, res) => { res.send("Publicando..."); enviarOfertasAprobadas(); });
+
+app.listen(process.env.PORT || 3000, () => console.log("🚀 Genesys Modular Online"));
