@@ -21,19 +21,24 @@ async function acortarLink(urlLarga) {
     } catch (e) { return urlLarga; }
 }
 
-// 🧠 IA NIVEL DIOS: Procesa arreglos (arrays) enteros en una sola llamada
+// 🧠 IA NIVEL DIOS + MODERADOR DE CONTENIDO
 async function generarMarketingIABatch(titulos) {
     try {
         const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-        const prompt = `Eres un copywriter experto. Analiza la siguiente lista de productos numerados.
-        Genera para CADA UNO:
-        1. Una frase persuasiva, creativa y corta con 1 emoji. Varía el estilo entre ellos.
-        2. Tres hashtags GENÉRICOS de macro-categoría (Ej: #Tecnologia, #Hogar). PROHIBIDO usar modelos específicos.
+        const prompt = `Eres un copywriter experto y un estricto moderador de políticas de Facebook. 
+        Analiza esta lista de productos numerados. Para CADA UNO:
+        
+        1. Evalúa si el producto es un medicamento (ej. pastillas, jarabes, tratamientos médicos, farmacia), suplemento engañoso, alcohol, tabaco o armas. Si es así, marca "seguro_para_fb" como false.
+        2. Si es seguro (true), genera una frase persuasiva corta con 1 emoji.
+        3. Genera tres hashtags GENÉRICOS (Ej: #Tecnologia, #Hogar).
         
         Devuelve ÚNICAMENTE un JSON con un arreglo (array) respetando el orden exacto. Formato:
         [
-          {"frase": "frase prod 1", "hashtags": "#Tag1 #Tag2 #Tag3"},
-          {"frase": "frase prod 2", "hashtags": "#Tag1 #Tag2 #Tag3"}
+          {
+            "seguro_para_fb": true, 
+            "frase": "frase prod 1", 
+            "hashtags": "#Tag1 #Tag2"
+          }
         ]
         
         Productos a analizar:
@@ -44,8 +49,7 @@ async function generarMarketingIABatch(titulos) {
         return JSON.parse(jsonString); 
     } catch (e) {
         console.error("⚠️ Error en Gemini API Batch:", e.message);
-        // Si falla, devuelve un arreglo de respaldos genéricos para no detener el sistema
-        return titulos.map(() => ({ frase: "¡Descubre esta gran oferta hoy! ⚡", hashtags: "#Oferta #Compras #MercadoLibre" }));
+        return titulos.map(() => ({ seguro_para_fb: true, frase: "¡Descubre esta gran oferta hoy! ⚡", hashtags: "#Oferta #Compras #MercadoLibre" }));
     }
 }
 
@@ -56,7 +60,7 @@ async function esProductoPermitido(titulo) {
         const tituloMinus = titulo.toLowerCase();
         const prohibida = exclusiones.find(e => tituloMinus.includes(e.termino.toLowerCase()));
         if (prohibida) {
-            console.log(`🚫 Bloqueado por exclusión de FB: "${prohibida.termino}" -> ${titulo}`);
+            console.log(`🚫 Bloqueado por Lista Negra DB: "${prohibida.termino}" -> ${titulo}`);
             return false;
         }
         return true;
@@ -106,14 +110,12 @@ async function runScraper() {
         });
 
         productosExtraidos = mezclarArreglo(productosExtraidos);
-        
-        console.log(`📦 [PASO 3] Filtrando candidatos ideales...`);
+        console.log(`📦 [PASO 3] Filtrando candidatos...`);
         let productosAProcesar = [];
 
-        // 🛡️ PRE-FILTRO: Seleccionamos solo 5 productos que NO existan y NO estén bloqueados
+        // 🛡️ CAPA 1: Filtro de base de datos
         for(const prod of productosExtraidos) {
             if (productosAProcesar.length >= 5) break; 
-            
             if (!(await esProductoPermitido(prod.titulo))) continue;
             
             const { data: existe } = await supabase.from('ofertas').select('id').eq('link_original', prod.linkOriginalLimpio).single();
@@ -124,9 +126,8 @@ async function runScraper() {
 
         if (productosAProcesar.length === 0) return console.log("⏩ No hay productos nuevos válidos en esta ronda.");
 
-        console.log(`🧠 [PASO 4] Llamando a la IA en Lote (1 petición para ${productosAProcesar.length} productos)...`);
+        console.log(`🧠 [PASO 4] Llamando a la IA Guardián para ${productosAProcesar.length} productos...`);
         
-        // ⚡ EL DISPARO ÚNICO
         const titulosArray = productosAProcesar.map(p => p.titulo);
         const resultadosIA = await generarMarketingIABatch(titulosArray);
 
@@ -134,7 +135,13 @@ async function runScraper() {
 
         for (let i = 0; i < productosAProcesar.length; i++) {
             const prod = productosAProcesar[i];
-            const marketingData = resultadosIA[i] || { frase: "¡Oferta especial! ⚡", hashtags: "#Ofertas #MercadoLibre" };
+            const marketingData = resultadosIA[i];
+
+            // 🛡️ CAPA 2: Veto de la Inteligencia Artificial
+            if (!marketingData || marketingData.seguro_para_fb === false) {
+                console.log(`🤖 IA VETO APLICADO: El producto "${prod.titulo}" violaba políticas.`);
+                continue; // Saltamos este producto por completo
+            }
 
             try {
                 const linkLargo = `${prod.linkOriginalLimpio}?matt_d2id=${process.env.ML_MATT_D2ID}&matt_event_ts=${Date.now()}`;
@@ -147,8 +154,8 @@ async function runScraper() {
                     link_original: prod.linkOriginalLimpio, 
                     link_afiliado: linkLargo, 
                     link_corto: linkCorto,
-                    hashtags: marketingData.hashtags,
-                    frase_persuasiva: marketingData.frase,
+                    hashtags: marketingData.hashtags || "#Ofertas",
+                    frase_persuasiva: marketingData.frase || "¡Aprovecha hoy!",
                     imagen_url: prod.imagen,
                     status: 'Aprobado', 
                     enviado: false, 
@@ -157,11 +164,11 @@ async function runScraper() {
                 }, { onConflict: 'link_original' });
 
                 guardadosNuevos++;
-                await new Promise(r => setTimeout(r, 1500)); // Pausa breve para no saturar is.gd
+                await new Promise(r => setTimeout(r, 1500)); 
             } catch (e) { console.error(`❌ Error guardando: ${prod.titulo}`); }
         }
         
-        console.log(`🏁 Fin. ${guardadosNuevos} productos procesados en tiempo récord.`);
+        console.log(`🏁 Fin. ${guardadosNuevos} productos procesados de forma segura.`);
     } catch (e) { console.error("❌ Error crítico en scraper dinámico."); }
 }
 
