@@ -4,12 +4,16 @@ const cheerio = require('cheerio');
 const { supabase, acortarLink, generarMarketingIABatch, esProductoPermitido, mezclarArreglo } = require('./servicios');
 
 async function runScraper() {
-    console.log("🚀 Iniciando Auto Search Modular...");
+    console.log("\n===========================================");
+    console.log("🚀 [AUTO SEARCH] Iniciando búsqueda modular...");
+    
     try {
         const { data: cats } = await supabase.from('categorias_busqueda').select('*').eq('activa', true);
-        if (!cats || cats.length === 0) return;
+        if (!cats || cats.length === 0) return console.log("⚠️ No hay categorías activas en Supabase.");
 
         const searchUrl = cats[Math.floor(Math.random() * cats.length)].url_mercadolibre;
+        console.log(`🎯 Explorando catálogo: ${searchUrl}`);
+        
         const resp = await axios.get(searchUrl, { headers: {'User-Agent': 'Mozilla/5.0'}, timeout: 15000 });
         const $ = cheerio.load(resp.data);
         
@@ -22,7 +26,9 @@ async function runScraper() {
             if (link && titulo && precio) candidatos.push({ titulo, precio, link, img });
         });
 
+        console.log(`📦 Tarjetas crudas extraídas: ${candidatos.length}`);
         candidatos = mezclarArreglo(candidatos);
+        
         let listaFinal = [];
         for (const p of candidatos) {
             if (listaFinal.length >= 5) break;
@@ -32,14 +38,20 @@ async function runScraper() {
             }
         }
 
-        if (listaFinal.length === 0) return;
+        if (listaFinal.length === 0) return console.log("⏩ No hay productos nuevos válidos en esta ronda.");
 
+        console.log(`🧠 Llamando a la IA Guardián para ${listaFinal.length} productos...`);
         const mkt = await generarMarketingIABatch(listaFinal.map(l => l.titulo));
 
+        let guardados = 0;
         for (let i = 0; i < listaFinal.length; i++) {
             const p = listaFinal[i];
             const meta = mkt[i];
-            if (!meta?.seguro_para_fb) continue;
+            
+            if (!meta?.seguro_para_fb) {
+                console.log(`🤖 IA VETO: "${p.titulo}" (Políticas de FB)`);
+                continue;
+            }
 
             const aff = `${p.link}?matt_d2id=${process.env.ML_MATT_D2ID}&matt_event_ts=${Date.now()}`;
             const short = await acortarLink(aff);
@@ -48,12 +60,17 @@ async function runScraper() {
                 producto: p.titulo, precio_oferta: parseFloat(p.precio),
                 link_original: p.link, link_afiliado: aff, link_corto: short,
                 frase_persuasiva: meta.frase, hashtags: meta.hashtags,
-                imagen_url: p.img, status: 'Aprobado', fuente: 'Auto'
+                imagen_url: p.img, status: 'Aprobado', fuente: 'Auto',
+                fecha_mexico: new Date().toLocaleString("en-US", {timeZone: "America/Mexico_City"})
             });
+            
+            console.log(`✅ Guardado: ${p.titulo}`);
+            guardados++;
             await new Promise(r => setTimeout(r, 1000));
         }
-        console.log("🏁 Proceso Auto Search terminado.");
-    } catch (e) { console.error("❌ Falló el scraper."); }
+        console.log(`🏁 Proceso Auto Search terminado. (${guardados} nuevos)`);
+        console.log("===========================================\n");
+    } catch (e) { console.error("❌ Falló el scraper:", e.message); }
 }
 
 module.exports = { runScraper };
