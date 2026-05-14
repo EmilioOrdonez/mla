@@ -1,0 +1,67 @@
+/* public/style.css */
+:root {
+    --bg-dark: #1a1e29;
+    --card-dark: #151b23;
+    --genesys-blue: #00d2ff;
+    --genesys-gradient: linear-gradient(90deg, #00d2ff 0%, #3a7bd5 100%);
+    --border-color: #2d3748;
+}
+
+body {
+    background-color: var(--bg-dark);
+    color: #fff;
+    min-height: 100vh;
+}
+
+.genesys-card {
+    background-color: var(--card-dark);
+    border: 1px solid var(--border-color);
+    border-radius: 16px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+}
+
+.text-genesys { color: var(--genesys-blue); }
+
+.stat-box {
+    background-color: #1c2431;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    transition: transform 0.2s;
+}
+
+.stat-box:hover { transform: translateY(-3px); }
+
+.btn-genesys {
+    background: var(--genesys-gradient);
+    border: none;
+    border-radius: 25px;
+    font-weight: bold;
+    transition: 0.3s;
+}
+
+.btn-genesys:hover {
+    opacity: 0.9;
+    transform: scale(1.02);
+    color: #fff;
+}
+
+.report-item {
+    background: #1c2431;
+    border-left: 4px solid var(--genesys-blue);
+}
+
+.report-item.success { border-left-color: #4ade80; }
+.report-item.error { border-left-color: #f87171; }
+
+textarea.form-control {
+    background-color: #1c2431;
+    border-color: var(--border-color);
+    color: #fff;
+}
+
+textarea.form-control:focus {
+    background-color: #1c2431;
+    color: #fff;
+    border-color: var(--genesys-blue);
+    box-shadow: 0 0 0 0.25rem rgba(0, 210, 255, 0.25);
+}
