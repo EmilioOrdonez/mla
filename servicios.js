@@ -20,7 +20,7 @@ async function acortarLink(urlLarga) {
 
 // 🛟 RESPALDO EN LOTES (GROQ)
 async function respaldoGroqBatch(titulos) {
-    console.log("🛟 [FALLBACK] Activando Groq (Llama-3) al rescate...");
+    console.log("🛟 [FALLBACK] Activando Groq (Llama-3.1) al rescate...");
     if (!groq) {
         console.error("❌ Groq ignorado: No se encontró GROQ_API_KEY en Render.");
         return titulos.map(() => ({ seguro_para_fb: true, frase: "¡Oferta increíble! ⚡", hashtags: "#Ofertas #MercadoLibre" }));
@@ -42,17 +42,15 @@ async function respaldoGroqBatch(titulos) {
                     Si detectas medicamento/alcohol/tabaco, marca seguro_para_fb como false.` 
                 }
             ],
-            model: "llama3-8b-8192",
-            temperature: 0.1, // Temperatura muy baja para evitar que alucine texto extra
+            model: "llama-3.1-8b-instant", // 👈 MODELO ACTUALIZADO
+            temperature: 0.1, 
         });
         
         let jsonString = chatCompletion.choices[0]?.message?.content.trim();
-        // Limpiador agresivo por si Llama-3 intenta meter markdown
         jsonString = jsonString.replace(/^```(json)?/gi, '').replace(/```$/gi, '').trim();
         
         return JSON.parse(jsonString);
     } catch (error) {
-        // 📡 EL DETECTIVE: Esto imprimirá la razón EXACTA en tu consola de Render
         console.error("❌ Error real en Groq Batch:", error.message || error);
         return titulos.map(() => ({ seguro_para_fb: true, frase: "¡Oferta increíble! ⚡", hashtags: "#Ofertas #MercadoLibre" }));
     }
@@ -72,7 +70,7 @@ async function generarMarketingIABatch(titulos) {
         return JSON.parse(jsonString); 
     } catch (e) {
         if (e.message.includes("429") || e.message.includes("Quota")) {
-            console.log("🚦 Gemini llegó a su límite (429). Solicitando relevo...");
+            console.log("🚦 Gemini llegó a su límite (429). Solicitando relevo a Groq...");
             return await respaldoGroqBatch(titulos);
         }
         console.error("⚠️ Error desconocido en Gemini:", e.message);
@@ -90,7 +88,7 @@ async function respaldoGroqIndividual(titulo) {
                 { role: "system", content: "You output pure JSON arrays or objects only." },
                 { role: "user", content: `Analiza: "${titulo}". Genera EXACTAMENTE: {"seguro_para_fb": true, "frase": "frase", "hashtags": "#tag"}.` }
             ],
-            model: "llama3-8b-8192",
+            model: "llama-3.1-8b-instant", // 👈 MODELO ACTUALIZADO
             temperature: 0.1,
         });
         let jsonString = chatCompletion.choices[0]?.message?.content.replace(/^```(json)?/gi, '').replace(/```$/gi, '').trim();
