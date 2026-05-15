@@ -2,14 +2,15 @@
 const axios = require('axios');
 const { createClient } = require('@supabase/supabase-js');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
-const Groq = require("groq-sdk"); // 👈 NUEVO: El escudero de Gemini
+const Groq = require("groq-sdk");
 require('dotenv').config();
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY }); // 👈 Inicializamos Groq
 
-// ✅ Motor de acortado centralizado (is.gd)
+// Evitamos que la app colapse si olvidaste poner la llave de Groq en Render
+const groq = process.env.GROQ_API_KEY ? new Groq({ apiKey: process.env.GROQ_API_KEY }) : null;
+
 async function acortarLink(urlLarga) {
     try {
         const res = await axios.get(`https://is.gd/create.php?format=simple&url=${encodeURIComponent(urlLarga)}`, { timeout: 10000 });
@@ -17,31 +18,47 @@ async function acortarLink(urlLarga) {
     } catch (e) { return urlLarga; }
 }
 
-// 🛟 EL RESPALDO: Groq usando Llama-3 para procesar en lote
+// 🛟 RESPALDO EN LOTES (GROQ)
 async function respaldoGroqBatch(titulos) {
     console.log("🛟 [FALLBACK] Activando Groq (Llama-3) al rescate...");
+    if (!groq) {
+        console.error("❌ Groq ignorado: No se encontró GROQ_API_KEY en Render.");
+        return titulos.map(() => ({ seguro_para_fb: true, frase: "¡Oferta increíble! ⚡", hashtags: "#Ofertas #MercadoLibre" }));
+    }
+
     try {
         const chatCompletion = await groq.chat.completions.create({
-            messages: [{ 
-                role: "user", 
-                content: `Eres un copywriter y moderador de políticas de Facebook. Analiza esta lista:
-                ${titulos.map((t, i) => `${i + 1}. ${t}`).join('\n')}
-                Para cada uno devuelve un JSON: {"seguro_para_fb": bool, "frase": "...", "hashtags": "#Tag1 #Tag2"}. 
-                Si es medicamento/alcohol/tabaco, seguro_para_fb es false. Devuelve ÚNICAMENTE un arreglo JSON puro, sin formato markdown.` 
-            }],
-            model: "llama3-8b-8192", // Modelo ultra rápido
-            temperature: 0.5,
+            messages: [
+                {
+                    role: "system",
+                    content: "Eres un API que devuelve EXCLUSIVAMENTE JSON. No uses markdown. No saludes. No des explicaciones."
+                },
+                { 
+                    role: "user", 
+                    content: `Analiza esta lista:
+                    ${titulos.map((t, i) => `${i + 1}. ${t}`).join('\n')}
+                    Devuelve UN ARREGLO JSON EXACTO con esta estructura por cada producto:
+                    [{"seguro_para_fb": true, "frase": "frase corta", "hashtags": "#Tag1 #Tag2"}]
+                    Si detectas medicamento/alcohol/tabaco, marca seguro_para_fb como false.` 
+                }
+            ],
+            model: "llama3-8b-8192",
+            temperature: 0.1, // Temperatura muy baja para evitar que alucine texto extra
         });
         
-        const jsonString = chatCompletion.choices[0]?.message?.content.replace(/```(json)?/gi, '').trim();
+        let jsonString = chatCompletion.choices[0]?.message?.content.trim();
+        // Limpiador agresivo por si Llama-3 intenta meter markdown
+        jsonString = jsonString.replace(/^```(json)?/gi, '').replace(/```$/gi, '').trim();
+        
         return JSON.parse(jsonString);
     } catch (error) {
-        console.error("❌ Fallo general. Groq tampoco pudo responder.");
+        // 📡 EL DETECTIVE: Esto imprimirá la razón EXACTA en tu consola de Render
+        console.error("❌ Error real en Groq Batch:", error.message || error);
         return titulos.map(() => ({ seguro_para_fb: true, frase: "¡Oferta increíble! ⚡", hashtags: "#Ofertas #MercadoLibre" }));
     }
 }
 
-// 🧠 IA Moderadora (GEMINI COMO TITULAR)
+// 🧠 IA PRINCIPAL EN LOTES (GEMINI)
 async function generarMarketingIABatch(titulos) {
     try {
         const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
@@ -54,9 +71,8 @@ async function generarMarketingIABatch(titulos) {
         const jsonString = result.response.text().replace(/```(json)?/gi, '').trim();
         return JSON.parse(jsonString); 
     } catch (e) {
-        // 🚦 Si Gemini choca con el límite 429, pasamos el relevo
         if (e.message.includes("429") || e.message.includes("Quota")) {
-            console.log("🚦 Gemini llegó a su límite de cuota (429).");
+            console.log("🚦 Gemini llegó a su límite (429). Solicitando relevo...");
             return await respaldoGroqBatch(titulos);
         }
         console.error("⚠️ Error desconocido en Gemini:", e.message);
@@ -64,22 +80,28 @@ async function generarMarketingIABatch(titulos) {
     }
 }
 
-// 🛟 EL RESPALDO INDIVIDUAL: Para cargas manuales
+// 🛟 RESPALDO INDIVIDUAL (GROQ)
 async function respaldoGroqIndividual(titulo) {
+    if (!groq) return { seguro_para_fb: true, frase: "¡Adquiérelo ya! 🚀", hashtags: "#Oferta #Compras" };
+
     try {
         const chatCompletion = await groq.chat.completions.create({
-            messages: [{ role: "user", content: `Analiza: "${titulo}". Genera JSON: {"seguro_para_fb": bool, "frase": "...", "hashtags": "#Tag1"}. No medicamentos/alcohol.` }],
+            messages: [
+                { role: "system", content: "You output pure JSON arrays or objects only." },
+                { role: "user", content: `Analiza: "${titulo}". Genera EXACTAMENTE: {"seguro_para_fb": true, "frase": "frase", "hashtags": "#tag"}.` }
+            ],
             model: "llama3-8b-8192",
-            temperature: 0.5,
+            temperature: 0.1,
         });
-        const jsonString = chatCompletion.choices[0]?.message?.content.replace(/```(json)?/gi, '').trim();
+        let jsonString = chatCompletion.choices[0]?.message?.content.replace(/^```(json)?/gi, '').replace(/```$/gi, '').trim();
         return JSON.parse(jsonString);
-    } catch (e) {
+    } catch (error) {
+        console.error("❌ Error real en Groq Individual:", error.message || error);
         return { seguro_para_fb: true, frase: "¡Adquiérelo ya! 🚀", hashtags: "#Oferta #Compras" };
     }
 }
 
-// 🧠 IA Individual (GEMINI TITULAR)
+// 🧠 IA PRINCIPAL INDIVIDUAL (GEMINI)
 async function generarMarketingIA(titulo) {
     try {
         const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });

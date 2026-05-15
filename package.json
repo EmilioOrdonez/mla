@@ -14,7 +14,7 @@
     "dotenv": "^16.0.0",
     "express": "^4.0.0",
     "express-basic-auth": "^1.2.1",
-    "groq-sdk": "^1.2.0",
+    "groq-sdk": "^0.3.2",
     "node-cron": "^3.0.0"
   }
 }
