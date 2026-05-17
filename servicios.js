@@ -11,12 +11,34 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 // Evitamos que la app colapse si olvidaste poner la llave de Groq en Render
 const groq = process.env.GROQ_API_KEY ? new Groq({ apiKey: process.env.GROQ_API_KEY }) : null;
 
+
+// ✅ Motor de acortado con REDUNDANCIA (Alta Disponibilidad)
 async function acortarLink(urlLarga) {
     try {
-        const res = await axios.get(`https://is.gd/create.php?format=simple&url=${encodeURIComponent(urlLarga)}`, { timeout: 10000 });
-        return (res.data && res.data.startsWith('http')) ? res.data.trim() : urlLarga;
-    } catch (e) { return urlLarga; }
+        // Intento 1: is.gd (Prioridad por redirección rápida)
+        const res = await axios.get(`https://is.gd/create.php?format=simple&url=${encodeURIComponent(urlLarga)}`, { timeout: 8000 });
+        if (res.data && res.data.startsWith('http')) return res.data.trim();
+        throw new Error("Respuesta de is.gd no válida");
+    } catch (e) { 
+        // 📡 EL DETECTIVE: Por fin veremos por qué falló
+        console.log(`⚠️ is.gd falló (${e.message}). Activando acortador de respaldo...`);
+        
+        try {
+            // Intento 2: El Plan B (TinyURL)
+            const res2 = await axios.get(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(urlLarga)}`, { timeout: 8000 });
+            if (res2.data && res2.data.startsWith('http')) return res2.data.trim();
+            return urlLarga;
+        } catch (e2) {
+            console.error(`❌ Ambos acortadores fallaron. Usando URL larga como último recurso.`);
+            return urlLarga; 
+        }
+    }
 }
+
+
+
+
+
 
 // 🛟 RESPALDO EN LOTES (GROQ)
 async function respaldoGroqBatch(titulos) {
