@@ -12,33 +12,37 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const groq = process.env.GROQ_API_KEY ? new Groq({ apiKey: process.env.GROQ_API_KEY }) : null;
 
 
-// ✅ Motor de acortado con REDUNDANCIA (Alta Disponibilidad)
 async function acortarLink(urlLarga) {
-    try {
-        // Intento 1: is.gd (Prioridad por redirección rápida)
-        const res = await axios.get(`https://is.gd/create.php?format=simple&url=${encodeURIComponent(urlLarga)}`, { timeout: 8000 });
-        if (res.data && res.data.startsWith('http')) return res.data.trim();
-        throw new Error("Respuesta de is.gd no válida");
-    } catch (e) { 
-        // 📡 EL DETECTIVE: Por fin veremos por qué falló
-        console.log(`⚠️ is.gd falló (${e.message}). Activando acortador de respaldo...`);
-        
+    const encoders = [
+        // 1. Prioridad: is.gd (Ya lo tienes configurado)
+        `https://is.gd/create.php?format=simple&url=${encodeURIComponent(urlLarga)}`,
+        // 2. Respaldo 1: v.gd (Misma arquitectura, IP diferente)
+        `https://v.gd/create.php?format=simple&url=${encodeURIComponent(urlLarga)}`,
+        // 3. Respaldo 2: Da.gd (Ultra rápido)
+        `https://da.gd/s?url=${encodeURIComponent(urlLarga)}`
+    ];
+
+    for (let api of encoders) {
         try {
-            // Intento 2: El Plan B (TinyURL)
-            const res2 = await axios.get(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(urlLarga)}`, { timeout: 8000 });
-            if (res2.data && res2.data.startsWith('http')) return res2.data.trim();
-            return urlLarga;
-        } catch (e2) {
-            console.error(`❌ Ambos acortadores fallaron. Usando URL larga como último recurso.`);
-            return urlLarga; 
+            const res = await axios.get(api, { timeout: 6000 });
+            if (res.data && res.data.startsWith('http')) {
+                return res.data.trim();
+            }
+        } catch (e) {
+            console.log(`⚠️ Falló acortador en ${api.split('/')[2]}. Reintentando con siguiente...`);
+            // Pequeña pausa de 1 segundo para no saturar conexiones (Política is.gd)
+            await new Promise(r => setTimeout(r, 1000));
         }
     }
+    
+    // Si todos fallan, antes de mandar la URL larga, intentamos TinyURL como última opción
+    try {
+        const resTiny = await axios.get(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(urlLarga)}`);
+        return resTiny.data;
+    } catch (e) {
+        return urlLarga;
+    }
 }
-
-
-
-
-
 
 // 🛟 RESPALDO EN LOTES (GROQ)
 async function respaldoGroqBatch(titulos) {
