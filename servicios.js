@@ -7,77 +7,45 @@ require('dotenv').config();
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-
-// Evitamos que la app colapse si olvidaste poner la llave de Groq en Render
 const groq = process.env.GROQ_API_KEY ? new Groq({ apiKey: process.env.GROQ_API_KEY }) : null;
 
-
+// ✅ MOTOR DE ACORTADO SIMPLIFICADO (is.gd + URL Original)
 async function acortarLink(urlLarga) {
-    const encoders = [
-        // 1. Prioridad: is.gd (Ya lo tienes configurado)
-        `https://is.gd/create.php?format=simple&url=${encodeURIComponent(urlLarga)}`,
-        // 2. Respaldo 1: v.gd (Misma arquitectura, IP diferente)
-        `https://v.gd/create.php?format=simple&url=${encodeURIComponent(urlLarga)}`,
-        // 3. Respaldo 2: Da.gd (Ultra rápido)
-        `https://da.gd/s?url=${encodeURIComponent(urlLarga)}`
-    ];
-
-    for (let api of encoders) {
-        try {
-            const res = await axios.get(api, { timeout: 6000 });
-            if (res.data && res.data.startsWith('http')) {
-                return res.data.trim();
-            }
-        } catch (e) {
-            console.log(`⚠️ Falló acortador en ${api.split('/')[2]}. Reintentando con siguiente...`);
-            // Pequeña pausa de 1 segundo para no saturar conexiones (Política is.gd)
-            await new Promise(r => setTimeout(r, 1000));
-        }
-    }
-    
-    // Si todos fallan, antes de mandar la URL larga, intentamos TinyURL como última opción
     try {
-        const resTiny = await axios.get(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(urlLarga)}`);
-        return resTiny.data;
-    } catch (e) {
-        return urlLarga;
+        // Intento único con is.gd
+        const res = await axios.get(`https://is.gd/create.php?format=simple&url=${encodeURIComponent(urlLarga)}`, { timeout: 8000 });
+        
+        if (res.data && res.data.startsWith('http')) {
+            return res.data.trim();
+        }
+        
+        throw new Error("Respuesta no válida de is.gd");
+    } catch (e) { 
+        // Si falla, registramos el evento y devolvemos la URL original para no detener el bot
+        console.log(`⚠️ No se pudo acortar con is.gd (${e.message}). Usando URL original.`);
+        return urlLarga; 
     }
 }
 
-// 🛟 RESPALDO EN LOTES (GROQ)
+// 🛟 RESPALDO EN LOTES (GROQ - Llama 3.1)
 async function respaldoGroqBatch(titulos) {
     console.log("🛟 [FALLBACK] Activando Groq (Llama-3.1) al rescate...");
-    if (!groq) {
-        console.error("❌ Groq ignorado: No se encontró GROQ_API_KEY en Render.");
-        return titulos.map(() => ({ seguro_para_fb: true, frase: "¡Oferta increíble! ⚡", hashtags: "#Ofertas #MercadoLibre" }));
-    }
+    if (!groq) return titulos.map(() => ({ seguro_para_fb: true, frase: "¡Oferta increíble! ⚡", hashtags: "#Ofertas #MercadoLibre" }));
 
     try {
         const chatCompletion = await groq.chat.completions.create({
             messages: [
-                {
-                    role: "system",
-                    content: "Eres un API que devuelve EXCLUSIVAMENTE JSON. No uses markdown. No saludes. No des explicaciones."
-                },
-                { 
-                    role: "user", 
-                    content: `Analiza esta lista:
-                    ${titulos.map((t, i) => `${i + 1}. ${t}`).join('\n')}
-                    Devuelve UN ARREGLO JSON EXACTO con esta estructura por cada producto:
-                    [{"seguro_para_fb": true, "frase": "frase corta", "hashtags": "#Tag1 #Tag2"}]
-                    Si detectas medicamento/alcohol/tabaco, marca seguro_para_fb como false.` 
-                }
+                { role: "system", content: "Eres un API que devuelve EXCLUSIVAMENTE JSON. No uses markdown. No saludes. No des explicaciones." },
+                { role: "user", content: `Analiza esta lista: ${titulos.map((t, i) => `${i + 1}. ${t}`).join('\n')} Devuelve UN ARREGLO JSON EXACTO: [{"seguro_para_fb": true, "frase": "frase corta", "hashtags": "#Tag1 #Tag2"}]` }
             ],
-            model: "llama-3.1-8b-instant", // 👈 MODELO ACTUALIZADO
+            model: "llama-3.1-8b-instant",
             temperature: 0.1, 
         });
-        
         let jsonString = chatCompletion.choices[0]?.message?.content.trim();
         jsonString = jsonString.replace(/^```(json)?/gi, '').replace(/```$/gi, '').trim();
-        
         return JSON.parse(jsonString);
     } catch (error) {
-        console.error("❌ Error real en Groq Batch:", error.message || error);
+        console.error("❌ Error en Groq Batch:", error.message);
         return titulos.map(() => ({ seguro_para_fb: true, frase: "¡Oferta increíble! ⚡", hashtags: "#Ofertas #MercadoLibre" }));
     }
 }
@@ -86,20 +54,14 @@ async function respaldoGroqBatch(titulos) {
 async function generarMarketingIABatch(titulos) {
     try {
         const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-        const prompt = `Eres un copywriter experto y moderador de políticas de Facebook. Analiza esta lista:
-        ${titulos.map((t, i) => `${i + 1}. ${t}`).join('\n')}
-        Para cada uno devuelve un JSON: {"seguro_para_fb": bool, "frase": "...", "hashtags": "#Tag1 #Tag2"}. 
-        Si es medicamento/alcohol/tabaco, seguro_para_fb es false. Solo JSON puro.`;
-        
+        const prompt = `Eres un copywriter experto y moderador de políticas de Facebook. Analiza esta lista: ${titulos.map((t, i) => `${i + 1}. ${t}`).join('\n')} Para cada uno devuelve un JSON: {"seguro_para_fb": bool, "frase": "...", "hashtags": "#Tag1 #Tag2"}. Si es medicamento/alcohol/tabaco, seguro_para_fb es false. Solo JSON puro.`;
         const result = await model.generateContent(prompt);
         const jsonString = result.response.text().replace(/```(json)?/gi, '').trim();
         return JSON.parse(jsonString); 
     } catch (e) {
         if (e.message.includes("429") || e.message.includes("Quota")) {
-            console.log("🚦 Gemini llegó a su límite (429). Solicitando relevo a Groq...");
             return await respaldoGroqBatch(titulos);
         }
-        console.error("⚠️ Error desconocido en Gemini:", e.message);
         return titulos.map(() => ({ seguro_para_fb: true, frase: "¡Oferta increíble! ⚡", hashtags: "#Ofertas #MercadoLibre" }));
     }
 }
@@ -107,20 +69,18 @@ async function generarMarketingIABatch(titulos) {
 // 🛟 RESPALDO INDIVIDUAL (GROQ)
 async function respaldoGroqIndividual(titulo) {
     if (!groq) return { seguro_para_fb: true, frase: "¡Adquiérelo ya! 🚀", hashtags: "#Oferta #Compras" };
-
     try {
         const chatCompletion = await groq.chat.completions.create({
             messages: [
                 { role: "system", content: "You output pure JSON arrays or objects only." },
                 { role: "user", content: `Analiza: "${titulo}". Genera EXACTAMENTE: {"seguro_para_fb": true, "frase": "frase", "hashtags": "#tag"}.` }
             ],
-            model: "llama-3.1-8b-instant", // 👈 MODELO ACTUALIZADO
+            model: "llama-3.1-8b-instant",
             temperature: 0.1,
         });
         let jsonString = chatCompletion.choices[0]?.message?.content.replace(/^```(json)?/gi, '').replace(/```$/gi, '').trim();
         return JSON.parse(jsonString);
     } catch (error) {
-        console.error("❌ Error real en Groq Individual:", error.message || error);
         return { seguro_para_fb: true, frase: "¡Adquiérelo ya! 🚀", hashtags: "#Oferta #Compras" };
     }
 }
