@@ -23,7 +23,7 @@ async function enviarOfertasAprobadas() {
                 // Cálculo matemático del descuento
                 const ahorro = Math.round(((record.precio_original - record.precio_oferta) / record.precio_original) * 100);
                 
-                // Formatos condicionales: Si hay más de 5% de descuento, grita. Si no, solo avisa precio especial.
+                // Formatos condicionales
                 const tagTG = ahorro > 5 ? `📉 <b>¡${ahorro}% de DESCUENTO!</b>` : `🔥 <b>¡PRECIO ESPECIAL!</b>`;
                 const tagFB = ahorro > 5 ? `📉 ¡${ahorro}% de DESCUENTO!` : `🔥 ¡PRECIO ESPECIAL!`;
                 
@@ -35,20 +35,38 @@ async function enviarOfertasAprobadas() {
 
                 const fotoSegura = (record.imagen_url && record.imagen_url.startsWith('http')) 
                     ? record.imagen_url 
-                    : "[https://via.placeholder.com/800x450/1a1a2e/00d2ff.png?text=Oferta+Genesys+Digital](https://via.placeholder.com/800x450/1a1a2e/00d2ff.png?text=Oferta+Genesys+Digital)";
+                    : "https://via.placeholder.com/800x450/1a1a2e/00d2ff.png?text=Oferta+Genesys+Digital";
 
-                // --- 📝 TELEGRAM (Estructura HTML) ---
-                const mensajeTG = `${tagTG}\n✨ <i>${fraseSegura}</i>\n\n📦 <b>${tituloSeguro}</b>\n\n❌ Antes: <s>${pOrig}</s>\n✅ <b>Hoy solo: ${pOf}</b>\n\n🛒 <b>COMPRA AQUÍ:</b> ${linkFinal}\n\n🎁 <b>Más recomendaciones:</b> https://meli.la/1oWVfrg\n\n—\n📢 <b>Genesys Digital</b> | ${tagsSeguros}`;
+                // --- 📝 TELEGRAM (Estructura HTML Limpia sin enlaces de compra en texto) ---
+                const mensajeTG = `${tagTG}\n✨ <i>${fraseSegura}</i>\n\n📦 <b>${tituloSeguro}</b>\n\n❌ Antes: <s>${pOrig}</s>\n✅ <b>Hoy solo: ${pOf}</b>\n\n🎁 <b>Más recomendaciones:</b> https://meli.la/1oWVfrg\n\n—\n📢 <b>Genesys Digital</b> | ${tagsSeguros}`;
 
-                // --- 📝 FACEBOOK (Doble salto de línea forzado \n\n) ---
+                // --- 📝 FACEBOOK ---
                 const mensajeFB = `${tagFB}\n\n✨ ${record.frase_persuasiva}\n\n📦 ${record.producto}\n\n❌ Antes: ${pOrig}\n✅ Hoy solo: ${pOf}\n\n🛒 Adquiérelo aquí:\n👉 ${linkFinal}\n\n🎁 Ver más ofertas recomendadas:\n👉 https://meli.la/1oWVfrg\n\n📲 Únete a nuestro Canal VIP en Telegram:\n👉 https://t.me/ofertas_mercado_libre_mexico\n\n${record.hashtags}`;
+
+                // --- 🎛️ BOTONES PARA TELEGRAM (Inline Keyboard) ---
+                const botonCompartirURL = `https://t.me/share/url?url=${encodeURIComponent(linkFinal)}&text=${encodeURIComponent(`¡Mira este ofertón! 📦 ${record.producto} a solo ${pOf}`)}`;
+                
+                const telegramButtons = {
+                    inline_keyboard: [
+                        [
+                            { text: '🛒 Ir a la oferta', url: linkFinal },
+                            { text: '📢 Compartir', url: botonCompartirURL }
+                        ]
+                    ]
+                };
 
                 // DISPAROS
                 try {
                     await axios.post(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendPhoto`, {
-                        chat_id: process.env.TELEGRAM_CHAT_ID, photo: fotoSegura, caption: mensajeTG, parse_mode: 'HTML'
+                        chat_id: process.env.TELEGRAM_CHAT_ID,
+                        photo: fotoSegura,
+                        caption: mensajeTG,
+                        parse_mode: 'HTML',
+                        reply_markup: JSON.stringify(telegramButtons) // Adjuntamos los botones como string JSON
                     });
-                } catch (eTG) {}
+                } catch (eTG) {
+                    console.error("Error Telegram:", eTG.response ? eTG.response.data : eTG.message);
+                }
 
                 try {
                     await axios.post(`https://graph.facebook.com/v19.0/${process.env.FB_PAGE_ID}/photos`, {
