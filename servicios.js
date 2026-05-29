@@ -54,7 +54,9 @@ async function respaldoGroqBatch(titulos) {
 async function generarMarketingIABatch(titulos) {
     try {
         const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-        const prompt = `Eres un copywriter experto y moderador de políticas de Facebook. Analiza esta lista: ${titulos.map((t, i) => `${i + 1}. ${t}`).join('\n')} Para cada uno devuelve un JSON: {"seguro_para_fb": bool, "frase": "...", "hashtags": "#Tag1 #Tag2"}. Si es medicamento/alcohol/tabaco, seguro_para_fb es false. Solo JSON puro.`;
+        //const prompt = `Eres un copywriter experto y moderador de políticas de Facebook. Analiza esta lista: ${titulos.map((t, i) => `${i + 1}. ${t}`).join('\n')} Para cada uno devuelve un JSON: {"seguro_para_fb": bool, "frase": "...", "hashtags": "#Tag1 #Tag2"}. Si es medicamento/alcohol/tabaco, seguro_para_fb es false. Solo JSON puro.`;
+        // En servicios.js (Modifica el prompt dentro de generarMarketingIABatch y generarMarketingIA)
+        const prompt = `Eres un copywriter experto para la marca Genesys Digital. Analiza esta lista: ${titulos.map((t, i) => `${i + 1}. ${t}`).join('\n')} Para cada uno devuelve un JSON: {"seguro_para_fb": bool, "frase": "...", "hashtags": "#Tag1"}.⚠️ REGLA DE POLÍTICA: Solo marca "seguro_para_fb": false si el producto es explícitamente un medicamento controlado, cigarrillos, armas o alcohol. Si es ropa, electrónica, herramientas, belleza o artículos del hogar, DEBES marcar "seguro_para_fb": true. Solo devuelve JSON puro.`;
         const result = await model.generateContent(prompt);
         const jsonString = result.response.text().replace(/```(json)?/gi, '').trim();
         return JSON.parse(jsonString); 
@@ -89,7 +91,9 @@ async function respaldoGroqIndividual(titulo) {
 async function generarMarketingIA(titulo) {
     try {
         const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-        const prompt = `Analiza: "${titulo}". Genera JSON: {"seguro_para_fb": bool, "frase": "...", "hashtags": "#Tag1 #Tag2"}. No medicamentos/alcohol.`;
+        //const prompt = `Analiza: "${titulo}". Genera JSON: {"seguro_para_fb": bool, "frase": "...", "hashtags": "#Tag1 #Tag2"}. No medicamentos/alcohol.`;
+        // En servicios.js (Modifica el prompt dentro de generarMarketingIABatch y generarMarketingIA)
+        const prompt = `Eres un copywriter experto para la marca Genesys Digital. Analiza esta lista: ${titulos.map((t, i) => `${i + 1}. ${t}`).join('\n')} Para cada uno devuelve un JSON: {"seguro_para_fb": bool, "frase": "...", "hashtags": "#Tag1"}. ⚠️ REGLA DE POLÍTICA: Solo marca "seguro_para_fb": false si el producto es explícitamente un medicamento controlado, cigarrillos, armas o alcohol. Si es ropa, electrónica, herramientas, belleza o artículos del hogar, DEBES marcar "seguro_para_fb": true. Solo devuelve JSON puro.`;
         const result = await model.generateContent(prompt);
         const jsonString = result.response.text().replace(/```(json)?/gi, '').trim();
         return JSON.parse(jsonString);
