@@ -12,7 +12,7 @@ async function runScraper() {
         const { data: tareas, error: dbError } = await supabase
             .from('categorias_busqueda')
             .select('url_mercado_libre')
-            .eq('activo', true);
+         //   .eq('activo', true);
 
         if (dbError || !tareas || tareas.length === 0) {
             console.log("⚠️ [SCRAPER] No se encontraron URLs activas en 'categorias_busqueda'.");
