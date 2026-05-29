@@ -8,11 +8,11 @@ async function runScraper() {
     console.log("🔍 [SCRAPER] Iniciando Auto Search desde Supabase...");
     
     try {
-        // 1. Regresamos al origen: Leer tus categorías configuradas en la DB
+        // 1. Leer tus categorías configuradas en la DB
         const { data: tareas, error: dbError } = await supabase
             .from('categorias_busqueda')
             .select('url_mercado_libre')
-         //   .eq('activo', true);
+            .eq('activo', true);
 
         if (dbError || !tareas || tareas.length === 0) {
             console.log("⚠️ [SCRAPER] No se encontraron URLs activas en 'categorias_busqueda'.");
@@ -36,15 +36,27 @@ async function runScraper() {
 
                 const $ = cheerio.load(resp.data);
                 
-                // Selector clásico y robusto para los bloques de productos de Mercado Libre
+                // Selector robusto para los bloques de productos de Mercado Libre
                 $('.ui-search-result__wrapper, .promotion-item, .andes-card').each((i, elem) => {
                     const link = $(elem).find('a').attr('href');
                     const titulo = $(elem).find('.ui-search-item__title, .promotion-item__title, .poly-component__title').text().trim();
                     
+                    // 📸 ¡AQUÍ COLOCAMOS LA EXTRACCIÓN DE LA IMAGEN!
+                    let imgRaw = $(elem).find('.ui-search-result-image__element, .poly-component__picture, img').first().attr('data-src') || 
+                                 $(elem).find('.ui-search-result-image__element, .poly-component__picture, img').first().attr('src') || '';
+
+                    // Si la imagen existe, la convertimos a alta resolución de forma segura para FB/TG
+                    let img = imgRaw;
+                    if (img.includes('mlstatic.com')) {
+                        img = img.replace(/-[IVX]\.jpg/g, '-O.jpg')
+                                 .replace(/-[IVX]\.webp/g, '-O.webp');
+                    }
+                    
                     if (link && titulo) {
                         todasLasOfertas.push({
                             titulo,
-                            url: link.split('#')[0]
+                            url: link.split('#')[0],
+                            img // Guardamos la imagen limpia en el objeto del producto
                         });
                     }
                 });
@@ -88,27 +100,27 @@ async function runScraper() {
             const p = listaFinal[i];
             const meta = mkt[i] || { seguro_para_fb: true, frase: "¡Precio especial de liquidación! ⚡", hashtags: "#Ofertas" };
 
-            // Aquí puedes usar la lógica de scraping manual interna para extraer los precios reales si lo requieres,
-            // por ahora los dejamos con valores base o los extraemos del HTML secundario.
             let linkAff = `${p.url}?matt_d2id=${process.env.ML_MATT_D2ID}&matt_event_ts=${Date.now()}`;
             let linkShort = await acortarLink(linkAff);
 
+            // Insertamos el registro completo incluyendo la nueva imagen limpia
             await supabase.from('ofertas').upsert({
                 producto: p.titulo,
-                precio_oferta: 0.0, // Puedes mapear selectores de precios si los requiere tu publicador
+                precio_oferta: 0.0, // Mantiene la estructura base para procesamiento manual posterior
                 precio_original: 0.0,
                 link_original: p.url,
                 link_afiliado: linkAff,
                 link_corto: linkShort,
                 frase_persuasiva: meta.frase,
                 hashtags: meta.hashtags,
+                imagen_url: p.img, // 💾 Se guarda la URL de alta resolución en la DB
                 status: 'Aprobado',
                 fuente: 'Auto',
                 enviado: false,
                 fecha_mexico: new Date().toLocaleString("en-US", {timeZone: "America/Mexico_City"})
             }, { onConflict: 'link_original' });
 
-            console.log(`✅ [GUARDADO] ${p.titulo}`);
+            console.log(`✅ [GUARDADO CON IMAGEN] ${p.titulo}`);
         }
 
         console.log("🏁 [SCRAPER] Ciclo automático completado.");
