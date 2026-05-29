@@ -1,121 +1,121 @@
 // index.js
 const axios = require('axios');
+const cheerio = require('cheerio');
 const { supabase, acortarLink, generarMarketingIABatch, esProductoPermitido, mezclarArreglo } = require('./servicios');
 
 async function runScraper() {
     console.log("\n===========================================");
-    console.log("🔍 [SCRAPER] Iniciando búsqueda de ofertas vía Puente Google...");
+    console.log("🔍 [SCRAPER] Iniciando Auto Search desde Supabase...");
     
-    const puenteUrl = process.env.GOOGLE_BRIDGE_URL;
-    
-    if (!puenteUrl) {
-        console.error("❌ Error: Falta la variable GOOGLE_BRIDGE_URL en Render.");
-        return;
-    }
-
     try {
-        // Configuración avanzada de Axios para seguir redirecciones 302 de Google Apps Script
-        const response = await axios.get(puenteUrl, { 
-            timeout: 15000,
-            maxRedirects: 5, // Obliga a Axios a seguir el redireccionamiento de Google
-            headers: {
-                'Accept': 'application/json',
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
-            }
-        });
+        // 1. Regresamos al origen: Leer tus categorías configuradas en la DB
+        const { data: tareas, error: dbError } = await supabase
+            .from('categorias_busqueda')
+            .select('url_mercado_libre')
+            .eq('activo', true);
 
-        // Verificación y parseo manual de seguridad por si viene como String o como Objeto
-        let data = response.data;
-        if (typeof data === 'string') {
-            try {
-                data = JSON.parse(data);
-            } catch (e) {
-                console.error("❌ Error al parsear la respuesta del puente como JSON:", e.message);
-                return;
-            }
-        }
-
-        if (!data || !data.results || !Array.isArray(data.results) || data.results.length === 0) {
-            console.log("⚠️ [SCRAPER] El puente respondió pero el nodo 'results' no contiene un arreglo válido.");
-            console.log("Estructura recibida:", JSON.stringify(data).substring(0, 200)); // Imprime los primeros 200 caracteres para auditar
+        if (dbError || !tareas || tareas.length === 0) {
+            console.log("⚠️ [SCRAPER] No se encontraron URLs activas en 'categorias_busqueda'.");
             return;
         }
 
-        let candidatos = [];
-        const results = data.results;
+        console.log(`📋 [SCRAPER] Se encontraron ${tareas.length} rutas para analizar.`);
+        let todasLasOfertas = [];
 
-        for (const producto of results) {
-            let titulo = producto.title;
-            let urlOriginal = producto.permalink;
-            let precioOferta = producto.price;
-            let precioOriginal = producto.original_price || producto.price; 
-            let img = producto.thumbnail ? producto.thumbnail.replace(/-I\.jpg/g, '-O.jpg') : '';
-
-            if (titulo && urlOriginal && precioOferta) {
-                candidatos.push({
-                    titulo,
-                    precioOferta,
-                    precioOriginal,
-                    link: urlOriginal.split('#')[0],
-                    img
+        // 2. Recorremos cada URL de tu tabla
+        for (const tarea of tareas) {
+            try {
+                console.log(`🔗 Analizando canal: ${tarea.url_mercado_libre}`);
+                
+                const resp = await axios.get(tarea.url_mercado_libre, {
+                    headers: { 
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' 
+                    },
+                    timeout: 10000
                 });
+
+                const $ = cheerio.load(resp.data);
+                
+                // Selector clásico y robusto para los bloques de productos de Mercado Libre
+                $('.ui-search-result__wrapper, .promotion-item, .andes-card').each((i, elem) => {
+                    const link = $(elem).find('a').attr('href');
+                    const titulo = $(elem).find('.ui-search-item__title, .promotion-item__title, .poly-component__title').text().trim();
+                    
+                    if (link && titulo) {
+                        todasLasOfertas.push({
+                            titulo,
+                            url: link.split('#')[0]
+                        });
+                    }
+                });
+
+            } catch (errAnidado) {
+                console.log(`⚠️ Error al raspar la ruta individual: ${errAnidado.message}`);
             }
         }
 
-        console.log(`📦 [SCRAPER] El puente entregó ${candidatos.length} productos potenciales organizados.`);
-        candidatos = mezclarArreglo(candidatos);
+        console.log(`📦 [SCRAPER] Total de productos extraídos: ${todasLasOfertas.length}`);
+        todasLasOfertas = mezclarArreglo(todasLasOfertas);
 
+        // 3. Filtrar y seleccionar un lote de 5 nuevos
         let listaFinal = [];
-        for (const p of candidatos) {
-            if (listaFinal.length >= 5) break; 
-            
-            if (await esProductoPermitido(p.titulo)) {
-                const { data: ex } = await supabase.from('ofertas').select('id').eq('link_original', p.link).single();
-                if (!ex) listaFinal.push(p);
+        for (const item of todasLasOfertas) {
+            if (listaFinal.length >= 5) break;
+
+            if (await esProductoPermitido(item.titulo)) {
+                const { data: existe } = await supabase
+                    .from('ofertas')
+                    .select('id')
+                    .eq('link_original', item.url)
+                    .single();
+
+                if (!existe) {
+                    listaFinal.push(item);
+                }
             }
         }
 
         if (listaFinal.length === 0) {
-            console.log("⏩ [SCRAPER] No hay ofertas nuevas libres de filtros en esta ronda.");
+            console.log("⏩ [SCRAPER] No hay novedades que guardar en esta ronda.");
             return;
         }
 
-        console.log(`🧠 [SCRAPER] Enviando ${listaFinal.length} títulos a la capa de Inteligencia Artificial...`);
+        // 4. Procesar lote con la IA y guardar
+        console.log(`🧠 Procesando lote de ${listaFinal.length} con IA...`);
         const mkt = await generarMarketingIABatch(listaFinal.map(l => l.titulo));
 
-        let guardados = 0;
         for (let i = 0; i < listaFinal.length; i++) {
             const p = listaFinal[i];
-            const meta = mkt[i] || { seguro_para_fb: true, frase: "¡Excelente oportunidad de compra! ⚡", hashtags: "#Ofertas" };
+            const meta = mkt[i] || { seguro_para_fb: true, frase: "¡Precio especial de liquidación! ⚡", hashtags: "#Ofertas" };
 
-            const aff = `${p.link}?matt_d2id=${process.env.ML_MATT_D2ID}&matt_event_ts=${Date.now()}`;
-            const short = await acortarLink(aff);
+            // Aquí puedes usar la lógica de scraping manual interna para extraer los precios reales si lo requieres,
+            // por ahora los dejamos con valores base o los extraemos del HTML secundario.
+            let linkAff = `${p.url}?matt_d2id=${process.env.ML_MATT_D2ID}&matt_event_ts=${Date.now()}`;
+            let linkShort = await acortarLink(linkAff);
 
             await supabase.from('ofertas').upsert({
                 producto: p.titulo,
-                precio_oferta: parseFloat(p.precioOferta),
-                precio_original: parseFloat(p.precioOriginal),
-                link_original: p.link,
-                link_afiliado: aff,
-                link_corto: short,
+                precio_oferta: 0.0, // Puedes mapear selectores de precios si los requiere tu publicador
+                precio_original: 0.0,
+                link_original: p.url,
+                link_afiliado: linkAff,
+                link_corto: linkShort,
                 frase_persuasiva: meta.frase,
                 hashtags: meta.hashtags,
-                imagen_url: p.img,
                 status: 'Aprobado',
                 fuente: 'Auto',
-                enviado: false, 
+                enviado: false,
                 fecha_mexico: new Date().toLocaleString("en-US", {timeZone: "America/Mexico_City"})
             }, { onConflict: 'link_original' });
 
-            console.log(`✅ [GUARDADO] Listo en cola: ${p.titulo}`);
-            guardados++;
+            console.log(`✅ [GUARDADO] ${p.titulo}`);
         }
-        
-        console.log(`🏁 [SCRAPER] Procesamiento completado. Datos listos en Supabase.`);
+
+        console.log("🏁 [SCRAPER] Ciclo automático completado.");
         console.log("===========================================\n");
 
     } catch (error) {
-        console.error("❌ Error crítico en Auto Search Scraper:", error.message);
+        console.error("❌ Error crítico general en runScraper:", error.message);
     }
 }
 
