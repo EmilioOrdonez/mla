@@ -22,23 +22,23 @@ async function enviarOfertasAprobadas() {
                 const formateador = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' });
                 const pOf = formateador.format(record.precio_oferta);
                 const pOrig = formateador.format(record.precio_original);
-                
-                const ahorro = record.precio_original > record.precio_oferta 
-                    ? Math.round(((record.precio_original - record.precio_oferta) / record.precio_original) * 100) 
+
+                const ahorro = record.precio_original > record.precio_oferta
+                    ? Math.round(((record.precio_original - record.precio_oferta) / record.precio_original) * 100)
                     : 0;
-                
+
                 const tagTG = ahorro > 5 ? `📉 <b>¡${ahorro}% de DESCUENTO!</b>` : `🔥 <b>¡PRECIO ESPECIAL!</b>`;
                 const tagFB = ahorro > 5 ? `📉 ¡${ahorro}% de DESCUENTO!` : `🔥 ¡PRECIO ESPECIAL!`;
-                
+
                 const linkFinal = record.link_corto || record.link_afiliado;
-                
+
                 const fraseSegura = escapeHTML(record.frase_persuasiva || "¡No te quedes sin el tuyo! ⚡");
                 const tituloSeguro = escapeHTML(record.producto);
                 const tagsSeguros = escapeHTML(record.hashtags || "#Ofertas #GenesysDigital");
 
                 // 🛡️ DECLARACIÓN ÚNICA Y SEGURA DE LA IMAGEN (Evita el SyntaxError)
-                let fotoSegura = (record.imagen_url && record.imagen_url.trim().startsWith('http')) 
-                    ? record.imagen_url.trim() 
+                let fotoSegura = (record.imagen_url && record.imagen_url.trim().startsWith('http'))
+                    ? record.imagen_url.trim()
                     : "https://images.unsplash.com/photo-1607082348824-0a96f2a4b9da?q=80&w=1200&auto=format&fit=crop";
 
                 // Formatos de Mensajes
@@ -83,18 +83,24 @@ async function enviarOfertasAprobadas() {
 
                 // 🚀 DISPARO FACEBOOK
                 try {
+                    // Intento 1: Publicar con la foto del producto
                     await axios.post(`https://graph.facebook.com/v19.0/${process.env.FB_PAGE_ID}/photos`, {
-                        url: fotoSegura, message: mensajeFB, access_token: process.env.FB_PAGE_TOKEN
+                        url: fotoSegura,
+                        message: mensajeFB,
+                        access_token: process.env.FB_PAGE_TOKEN
                     });
-                    console.log(`🔹 [FACEBOOK] Éxito: ${record.producto}`);
+                    console.log(`🔹 [FACEBOOK] Éxito (Post con Foto): ${record.producto}`);
                 } catch (eFB) {
-                    console.error(`⚠️ [FACEBOOK] Foto rechazada. Reintentando con imagen genérica de respaldo...`);
+                    console.error(`⚠️ [FACEBOOK] Foto rechazada por la API. Activando Fallback a Texto Plano (/feed)...`);
+
+                    // FALLBACK FACEBOOK: Si la foto falla, mutamos a una publicación de texto en el muro
+                    // Facebook generará automáticamente la vista previa del link corto
                     try {
-                        const imagenRespaldoMundial = "https://images.unsplash.com/photo-1557821552-17105176677c?q=80&w=1200&auto=format&fit=crop";
-                        await axios.post(`https://graph.facebook.com/v19.0/${process.env.FB_PAGE_ID}/photos`, {
-                            url: imagenRespaldoMundial, message: mensajeFB, access_token: process.env.FB_PAGE_TOKEN
+                        await axios.post(`https://graph.facebook.com/v19.0/${process.env.FB_PAGE_ID}/feed`, {
+                            message: mensajeFB,
+                            access_token: process.env.FB_PAGE_TOKEN
                         });
-                        console.log(`🔹 [FACEBOOK-FALLBACK] Publicado con éxito usando imagen de respaldo.`);
+                        console.log(`🔹 [FACEBOOK-FALLBACK] Éxito (Post de Texto sin imagen): ${record.producto}`);
                     } catch (eFB2) {
                         console.error("❌ Error definitivo en API Facebook:", eFB2.response ? JSON.stringify(eFB2.response.data) : eFB2.message);
                     }
