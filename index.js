@@ -14,16 +14,35 @@ async function runScraper() {
     }
 
     try {
-        // Le pegamos al puente de Google, el cual es inmune al bloqueo 403
-        const response = await axios.get(puenteUrl, { timeout: 15000 });
+        // Configuración avanzada de Axios para seguir redirecciones 302 de Google Apps Script
+        const response = await axios.get(puenteUrl, { 
+            timeout: 15000,
+            maxRedirects: 5, // Obliga a Axios a seguir el redireccionamiento de Google
+            headers: {
+                'Accept': 'application/json',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+            }
+        });
 
-        if (!response.data || !response.data.results || response.data.results.length === 0) {
-            console.log("⚠️ [SCRAPER] No se recibieron resultados del puente o venían vacíos.");
+        // Verificación y parseo manual de seguridad por si viene como String o como Objeto
+        let data = response.data;
+        if (typeof data === 'string') {
+            try {
+                data = JSON.parse(data);
+            } catch (e) {
+                console.error("❌ Error al parsear la respuesta del puente como JSON:", e.message);
+                return;
+            }
+        }
+
+        if (!data || !data.results || !Array.isArray(data.results) || data.results.length === 0) {
+            console.log("⚠️ [SCRAPER] El puente respondió pero el nodo 'results' no contiene un arreglo válido.");
+            console.log("Estructura recibida:", JSON.stringify(data).substring(0, 200)); // Imprime los primeros 200 caracteres para auditar
             return;
         }
 
         let candidatos = [];
-        const results = response.data.results;
+        const results = data.results;
 
         for (const producto of results) {
             let titulo = producto.title;
@@ -43,7 +62,7 @@ async function runScraper() {
             }
         }
 
-        console.log(`📦 [SCRAPER] El puente entregó ${candidatos.length} productos potenciales.`);
+        console.log(`📦 [SCRAPER] El puente entregó ${candidatos.length} productos potenciales organizados.`);
         candidatos = mezclarArreglo(candidatos);
 
         let listaFinal = [];
@@ -57,11 +76,11 @@ async function runScraper() {
         }
 
         if (listaFinal.length === 0) {
-            console.log("⏩ [SCRAPER] No hay ofertas nuevas en esta ronda.");
+            console.log("⏩ [SCRAPER] No hay ofertas nuevas libres de filtros en esta ronda.");
             return;
         }
 
-        console.log(`🧠 [SCRAPER] Enviando ${listaFinal.length} títulos a la IA...`);
+        console.log(`🧠 [SCRAPER] Enviando ${listaFinal.length} títulos a la capa de Inteligencia Artificial...`);
         const mkt = await generarMarketingIABatch(listaFinal.map(l => l.titulo));
 
         let guardados = 0;
@@ -88,11 +107,11 @@ async function runScraper() {
                 fecha_mexico: new Date().toLocaleString("en-US", {timeZone: "America/Mexico_City"})
             }, { onConflict: 'link_original' });
 
-            console.log(`✅ [GUARDADO] En cola: ${p.titulo}`);
+            console.log(`✅ [GUARDADO] Listo en cola: ${p.titulo}`);
             guardados++;
         }
         
-        console.log(`🏁 [SCRAPER] Búsqueda finalizada con éxito.`);
+        console.log(`🏁 [SCRAPER] Procesamiento completado. Datos listos en Supabase.`);
         console.log("===========================================\n");
 
     } catch (error) {
