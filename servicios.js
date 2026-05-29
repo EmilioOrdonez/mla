@@ -14,16 +14,16 @@ async function acortarLink(urlLarga) {
     try {
         // Intento único con is.gd
         const res = await axios.get(`https://is.gd/create.php?format=simple&url=${encodeURIComponent(urlLarga)}`, { timeout: 8000 });
-        
+
         if (res.data && res.data.startsWith('http')) {
             return res.data.trim();
         }
-        
+
         throw new Error("Respuesta no válida de is.gd");
-    } catch (e) { 
+    } catch (e) {
         // Si falla, registramos el evento y devolvemos la URL original para no detener el bot
         console.log(`⚠️ No se pudo acortar con is.gd (${e.message}). Usando URL original.`);
-        return urlLarga; 
+        return urlLarga;
     }
 }
 
@@ -39,7 +39,7 @@ async function respaldoGroqBatch(titulos) {
                 { role: "user", content: `Analiza esta lista: ${titulos.map((t, i) => `${i + 1}. ${t}`).join('\n')} Devuelve UN ARREGLO JSON EXACTO: [{"seguro_para_fb": true, "frase": "frase corta", "hashtags": "#Tag1 #Tag2"}]` }
             ],
             model: "llama-3.1-8b-instant",
-            temperature: 0.1, 
+            temperature: 0.1,
         });
         let jsonString = chatCompletion.choices[0]?.message?.content.trim();
         jsonString = jsonString.replace(/^```(json)?/gi, '').replace(/```$/gi, '').trim();
@@ -51,20 +51,19 @@ async function respaldoGroqBatch(titulos) {
 }
 
 // 🧠 IA PRINCIPAL EN LOTES (GEMINI)
-async function generarMarketingIABatch(titulos) {
+
+async function generarMarketingIABatch(titulo) {
     try {
         const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-        //const prompt = `Eres un copywriter experto y moderador de políticas de Facebook. Analiza esta lista: ${titulos.map((t, i) => `${i + 1}. ${t}`).join('\n')} Para cada uno devuelve un JSON: {"seguro_para_fb": bool, "frase": "...", "hashtags": "#Tag1 #Tag2"}. Si es medicamento/alcohol/tabaco, seguro_para_fb es false. Solo JSON puro.`;
-        // En servicios.js (Modifica el prompt dentro de generarMarketingIABatch y generarMarketingIA)
-        const prompt = `Eres un copywriter experto para la marca Genesys Digital. Analiza esta lista: ${titulos.map((t, i) => `${i + 1}. ${t}`).join('\n')} Para cada uno devuelve un JSON: {"seguro_para_fb": bool, "frase": "...", "hashtags": "#Tag1"}.⚠️ REGLA DE POLÍTICA: Solo marca "seguro_para_fb": false si el producto es explícitamente un medicamento controlado, cigarrillos, armas o alcohol. Si es ropa, electrónica, herramientas, belleza o artículos del hogar, DEBES marcar "seguro_para_fb": true. Solo devuelve JSON puro.`;
+        const prompt = `Analiza: "${titulo}". Genera un JSON EXACTO: {"seguro_para_fb": true, "frase": "frase persuasiva corta", "hashtags": "#Tag1 #Tag2"}. Usa siempre true para seguro_para_fb a menos que sea veneno o armas. Solo JSON sin markdown.`;
         const result = await model.generateContent(prompt);
-        const jsonString = result.response.text().replace(/```(json)?/gi, '').trim();
-        return JSON.parse(jsonString); 
+        let jsonString = result.response.text().replace(/```(json)?/gi, '').trim();
+        return JSON.parse(jsonString);
     } catch (e) {
         if (e.message.includes("429") || e.message.includes("Quota")) {
-            return await respaldoGroqBatch(titulos);
+            return await respaldoGroqIndividual(titulo);
         }
-        return titulos.map(() => ({ seguro_para_fb: true, frase: "¡Oferta increíble! ⚡", hashtags: "#Ofertas #MercadoLibre" }));
+        return { seguro_para_fb: true, frase: "¡Adquiérelo ya! 🚀", hashtags: "#Oferta #Compras" };
     }
 }
 
@@ -91,11 +90,9 @@ async function respaldoGroqIndividual(titulo) {
 async function generarMarketingIA(titulo) {
     try {
         const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-        //const prompt = `Analiza: "${titulo}". Genera JSON: {"seguro_para_fb": bool, "frase": "...", "hashtags": "#Tag1 #Tag2"}. No medicamentos/alcohol.`;
-        // En servicios.js (Modifica el prompt dentro de generarMarketingIABatch y generarMarketingIA)
-        const prompt = `Eres un copywriter experto para la marca Genesys Digital. Analiza esta lista: ${titulos.map((t, i) => `${i + 1}. ${t}`).join('\n')} Para cada uno devuelve un JSON: {"seguro_para_fb": bool, "frase": "...", "hashtags": "#Tag1"}. ⚠️ REGLA DE POLÍTICA: Solo marca "seguro_para_fb": false si el producto es explícitamente un medicamento controlado, cigarrillos, armas o alcohol. Si es ropa, electrónica, herramientas, belleza o artículos del hogar, DEBES marcar "seguro_para_fb": true. Solo devuelve JSON puro.`;
+        const prompt = `Analiza: "${titulo}". Genera un JSON EXACTO: {"seguro_para_fb": true, "frase": "frase persuasiva corta", "hashtags": "#Tag1 #Tag2"}. Usa siempre true para seguro_para_fb a menos que sea veneno o armas. Solo JSON sin markdown.`;
         const result = await model.generateContent(prompt);
-        const jsonString = result.response.text().replace(/```(json)?/gi, '').trim();
+        let jsonString = result.response.text().replace(/```(json)?/gi, '').trim();
         return JSON.parse(jsonString);
     } catch (e) {
         if (e.message.includes("429") || e.message.includes("Quota")) {
@@ -123,7 +120,7 @@ function mezclarArreglo(array) {
     return array;
 }
 
-module.exports = { 
-    supabase, acortarLink, generarMarketingIABatch, 
-    generarMarketingIA, esProductoPermitido, mezclarArreglo 
+module.exports = {
+    supabase, acortarLink, generarMarketingIABatch,
+    generarMarketingIA, esProductoPermitido, mezclarArreglo
 };
