@@ -19,7 +19,7 @@ async function runScraper() {
             return;
         }
 
-        console.log(`📋 [SCRAPER] Se encontraron ${tareas.length} rutas (Páginas de Ofertas) para analizar.`);
+        console.log(`📋 [SCRAPER] Se encontraron ${tareas.length} rutas para analizar.`);
         let todasLasOfertas = [];
 
         // 2. Recorremos cada URL de tu tabla (page=1, page=2, etc.)
@@ -29,7 +29,6 @@ async function runScraper() {
                 
                 console.log(`🔗 Analizando canal: ${tarea.url_mercado_libre}`);
                 
-                // Petición limpia con cabeceras de navegador real
                 const resp = await axios.get(tarea.url_mercado_libre.trim(), {
                     headers: { 
                         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
@@ -42,24 +41,19 @@ async function runScraper() {
                 
                 // 🕵️ SCENARIO A: Si por error se cuela una página de producto único (/p/)
                 if (tarea.url_mercado_libre.includes('/p/') || $('.pdp-container').length > 0) {
-                    console.log("📄 Detectada página de producto único. Aplicando selectores PDP...");
-                    
                     let titulo = $('meta[property="og:title"]').attr('content') || $('h1.ui-pdp-title').text().trim();
                     if (titulo.includes(' - $')) titulo = titulo.split(' - $')[0];
-
                     let img = $('meta[property="og:image"]').attr('content') || '';
                     
-                    let precioOfertaRaw = $('.ui-pdp-price__part .andes-money-amount__fraction').not('.ui-pdp-price__part--expanded .andes-money-amount--previous .andes-money-amount__fraction').first().text().replace(/,/g, '').trim();
-                    let precioOriginalRaw = $('.ui-pdp-price__part .andes-money-amount--previous .andes-money-amount__fraction').first().text().replace(/,/g, '').trim();
+                    let precioOfertaRaw = $('.ui-pdp-price__part:not(.ui-pdp-price__part--expanded) .andes-money-amount__fraction').first().text().replace(/,/g, '').trim();
+                    let precioOriginalRaw = $('.ui-pdp-price__part--expanded .andes-money-amount__fraction').first().text().replace(/,/g, '').trim();
 
                     if (!precioOfertaRaw) precioOfertaRaw = $('.ui-pdp-price__fraction').first().text().replace(/,/g, '').trim() || '0';
                     if (!precioOriginalRaw) precioOriginalRaw = precioOfertaRaw;
 
                     if (titulo) {
                         todasLasOfertas.push({
-                            titulo,
-                            url: tarea.url_mercado_libre.split('?')[0],
-                            img,
+                            titulo, url: tarea.url_mercado_libre.split('?')[0], img,
                             precioOferta: parseFloat(precioOfertaRaw) || 0,
                             precioOriginal: parseFloat(precioOriginalRaw) || 0
                         });
@@ -68,12 +62,10 @@ async function runScraper() {
                 }
 
                 // 🕵️ SCENARIO B: Tu cuadrícula de Ofertas Masiva (?container_id=OFFERS_LIST)
-                // Agregamos selectores específicos para las tarjetas de la sección de ofertas oficiales
                 $('.ui-search-result__wrapper, .promotion-item, .andes-card, .ui-search-layout__item, .promotion-item__container').each((i, elem) => {
                     const link = $(elem).find('a').attr('href');
                     const titulo = $(elem).find('.ui-search-item__title, .promotion-item__title, .poly-component__title').text().trim();
                     
-                    // Extracción de imagen con selectores adaptados para la sección de Ofertas
                     let imgRaw = $(elem).find('.ui-search-result-image__element, .promotion-item__img-container img, .poly-component__picture img, img').first().attr('data-src') || 
                                  $(elem).find('.ui-search-result-image__element, .promotion-item__img-container img, .poly-component__picture img, img').first().attr('src') || '';
 
@@ -83,21 +75,37 @@ async function runScraper() {
                                  .replace(/-[IVX]\.webp/g, '-O.webp');
                     }
 
-                    // Extracción de Precios en el listado masivo
-                    let precioOfertaRaw = $(elem).find('.andes-money-amount__fraction').not('.ui-search-price__part--expanded .andes-money-amount--previous .andes-money-amount__fraction').first().text().replace(/,/g, '').trim();
+                    // 💰 EXTRAER PRECIOS MEDIANTE ESTRUCTURA JERÁRQUICA EXACTA
+                    // 1. Intentar buscar el precio original tachado primero (si existe)
                     let precioOriginalRaw = $(elem).find('.andes-money-amount--previous .andes-money-amount__fraction').first().text().replace(/,/g, '').trim();
-
-                    if (!precioOfertaRaw) {
-                        precioOfertaRaw = $(elem).find('.ui-search-price__part .andes-money-amount__fraction').first().text().replace(/,/g, '').trim() || '0';
-                    }
-                    if (!precioOriginalRaw) {
-                        precioOriginalRaw = precioOfertaRaw;
-                    }
                     
+                    // 2. Intentar buscar el precio de oferta actual (en la etiqueta de precio nuevo)
+                    let precioOfertaRaw = $(elem).find('.andes-money-amount--cents-superscript .andes-money-amount__fraction').first().text().replace(/,/g, '').trim() ||
+                                          $(elem).find('.promotion-item__price .andes-money-amount__fraction').first().text().replace(/,/g, '').trim();
+
+                    // Si los selectores específicos de ofertas fallan, recurrimos a los selectores generales
+                    if (!precioOfertaRaw) {
+                        // Buscamos cualquier fraccion de dinero que NO esté dentro del bloque tachado (previous)
+                        $(elem).find('.andes-money-amount__fraction').each((j, priceElem) => {
+                            if (!$(priceElem).closest('.andes-money-amount--previous').length && !precioOfertaRaw) {
+                                precioOfertaRaw = $(priceElem).text().replace(/,/g, '').trim();
+                            }
+                        });
+                    }
+
+                    // Ajustes de cierre: si no hay descuento real, el precio de oferta y el original son idénticos
+                    if (!precioOfertaRaw) precioOfertaRaw = '0';
+                    if (!precioOriginalRaw) precioOriginalRaw = precioOfertaRaw;
+                    
+                    // Asegurar que si encontramos el precio original pero el de oferta falló, no queden invertidos
+                    if (precioOfertaRaw === '0' && precioOriginalRaw !== '0') {
+                        precioOfertaRaw = precioOriginalRaw;
+                    }
+
                     if (link && titulo) {
                         todasLasOfertas.push({
                             titulo,
-                            url: link.split('#')[0].split('?')[0], // Limpiamos rastro de tracking tags para no ensuciar la DB
+                            url: link.split('#')[0].split('?')[0],
                             img,
                             precioOferta: parseFloat(precioOfertaRaw) || 0,
                             precioOriginal: parseFloat(precioOriginalRaw) || 0
@@ -163,7 +171,7 @@ async function runScraper() {
                 fecha_mexico: new Date().toLocaleString("en-US", {timeZone: "America/Mexico_City"})
             }, { onConflict: 'link_original' });
 
-            console.log(`✅ [GUARDADO COMPLETO] $${p.precioOferta} (Antes: $${p.precioOriginal}) - ${p.titulo}`);
+            console.log(`✅ [GUARDADO] Oferta: $${p.precioOferta} | Original: $${p.precioOriginal} -> ${p.titulo}`);
         }
 
         console.log("🏁 [SCRAPER] Ciclo automático completado con éxito.");
