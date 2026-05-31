@@ -232,14 +232,25 @@ app.post('/api/manual', candado, async (req, res) => {
 // =========================================================================
 // 🔍 ENDPOINT: AUTO SEARCH (Liberado de contraseña para Cron-Job)
 // =========================================================================
-app.get('/api/buscar', async (req, res) => { // 👈 Quitamos 'candado' aquí
-    console.log("⚡ [CRON-JOB] Petición externa recibida en /api/buscar. Iniciando scraper...");
-    
+// =========================================================================
+// 🔍 ENDPOINT: AUTO SEARCH (Soporta UI síncrona y Cron-Job asíncrono)
+// =========================================================================
+app.get('/api/buscar', async (req, res) => {
+    const esCron = req.query.fuente === 'cron';
+
+    if (esCron) {
+        console.log("⚡ [CRON-JOB] Ejecutando scraper en segundo plano de forma inmediata...");
+        // Disparamos sin 'await' para responder rápido al Cron-Job y evitar el timeout de 30s
+        runScraper().catch(err => console.error("❌ Error diferido en runScraper via Cron:", err.message));
+        return res.status(200).send({ status: "success", message: "Scraper iniciado en segundo plano" });
+    }
+
+    // Si viene de la interfaz web (UI), sí esperamos con 'await' para refrescar estadísticas
+    console.log("🖥️ [UI Web] Ejecutando scraper en modo síncrono para actualizar panel...");
     try {
-        await runScraper(); 
-        console.log("⚡ [CRON-JOB] Scraping finalizado con éxito.");
+        await runScraper();
     } catch (error) {
-        console.error("❌ Error en la ruta /api/buscar:", error.message);
+        console.error("❌ Error en ruta /api/buscar (UI):", error.message);
     }
 
     const content = `
@@ -259,14 +270,25 @@ app.get('/api/buscar', async (req, res) => { // 👈 Quitamos 'candado' aquí
 // =========================================================================
 // 📤 ENDPOINT: PUBLICAR YA (Liberado de contraseña para Cron-Job)
 // =========================================================================
-app.get('/api/publicar', async (req, res) => { // 👈 Quitamos 'candado' aquí
-    console.log("⚡ [CRON-JOB] Petición externa recibida en /api/publicar. Despachando cola...");
-    
+// =========================================================================
+// 📤 ENDPOINT: PUBLICAR YA (Soporta UI síncrona y Cron-Job asíncrono)
+// =========================================================================
+app.get('/api/publicar', async (req, res) => {
+    const esCron = req.query.fuente === 'cron';
+
+    if (esCron) {
+        console.log("⚡ [CRON-JOB] Despachando publicaciones en segundo plano inmediatamente...");
+        // Disparamos sin 'await' para liberar la conexión del Cron-Job en menos de 1 segundo
+        enviarOfertasAprobadas().catch(err => console.error("❌ Error diferido en enviarOfertas via Cron:", err.message));
+        return res.status(200).send({ status: "success", message: "Publicador iniciado en segundo plano" });
+    }
+
+    // Si el usuario presiona el botón físico en la web, esperamos a que despache para refrescar los contadores
+    console.log("🖥️ [UI Web] Despachando publicaciones en modo síncrono...");
     try {
-        await enviarOfertasAprobadas(); 
-        console.log("⚡ [CRON-JOB] Publicación en redes sociales completada.");
+        await enviarOfertasAprobadas();
     } catch (error) {
-        console.error("❌ Error en la ruta /api/publicar:", error.message);
+        console.error("❌ Error en ruta /api/publicar (UI):", error.message);
     }
     
     const content = `
