@@ -5,7 +5,7 @@ const { supabase, acortarLink, generarMarketingIABatch, esProductoPermitido, mez
 
 async function runScraper() {
     console.log("\n===========================================");
-    console.log("🔍 [SCRAPER] Iniciando Auto Search desde Supabase...");
+    console.log("🔍 [SCRAPER] Iniciando Auto Search desde Supabase con Extracción de Precios...");
     
     try {
         // 1. Leer tus categorías configuradas en la DB
@@ -27,7 +27,7 @@ async function runScraper() {
             try {
                 console.log(`🔗 Analizando canal: ${tarea.url_mercado_libre}`);
                 
-                const resp = await axios.get(tarea.url_mercado_libre, {
+                const resp = await axios.get(tarea.url_mercaydo_libre || tarea.url_mercado_libre, {
                     headers: { 
                         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' 
                     },
@@ -37,26 +37,42 @@ async function runScraper() {
                 const $ = cheerio.load(resp.data);
                 
                 // Selector robusto para los bloques de productos de Mercado Libre
-                $('.ui-search-result__wrapper, .promotion-item, .andes-card').each((i, elem) => {
+                $('.ui-search-result__wrapper, .promotion-item, .andes-card, .ui-search-layout__item').each((i, elem) => {
                     const link = $(elem).find('a').attr('href');
                     const titulo = $(elem).find('.ui-search-item__title, .promotion-item__title, .poly-component__title').text().trim();
                     
-                    // 📸 ¡AQUÍ COLOCAMOS LA EXTRACCIÓN DE LA IMAGEN!
+                    // 📸 Extracción de la imagen
                     let imgRaw = $(elem).find('.ui-search-result-image__element, .poly-component__picture, img').first().attr('data-src') || 
                                  $(elem).find('.ui-search-result-image__element, .poly-component__picture, img').first().attr('src') || '';
 
-                    // Si la imagen existe, la convertimos a alta resolución de forma segura para FB/TG
                     let img = imgRaw;
                     if (img.includes('mlstatic.com')) {
                         img = img.replace(/-[IVX]\.jpg/g, '-O.jpg')
                                  .replace(/-[IVX]\.webp/g, '-O.webp');
+                    }
+
+                    // 💰 ─── EXTRACCIÓN DINÁMICA DE PRECIOS ───
+                    // 1. Buscamos el precio de oferta actual (el que no está tachado)
+                    let precioOfertaRaw = $(elem).find('.andes-money-amount__fraction').not('.ui-search-price__part--expanded .andes-money-amount--previous .andes-money-amount__fraction').first().text().replace(/,/g, '').trim();
+                    
+                    // 2. Buscamos el precio anterior tachado (si existe)
+                    let precioOriginalRaw = $(elem).find('.andes-money-amount--previous .andes-money-amount__fraction').first().text().replace(/,/g, '').trim();
+
+                    // Fallback de seguridad por si el producto no tiene descuento (ambos precios se vuelven el mismo)
+                    if (!precioOfertaRaw) {
+                        precioOfertaRaw = $(elem).find('.ui-search-price__part .andes-money-amount__fraction').first().text().replace(/,/g, '').trim() || '0';
+                    }
+                    if (!precioOriginalRaw) {
+                        precioOriginalRaw = precioOfertaRaw;
                     }
                     
                     if (link && titulo) {
                         todasLasOfertas.push({
                             titulo,
                             url: link.split('#')[0],
-                            img // Guardamos la imagen limpia en el objeto del producto
+                            img,
+                            precioOferta: parseFloat(precioOfertaRaw) || 0,
+                            precioOriginal: parseFloat(precioOriginalRaw) || 0
                         });
                     }
                 });
@@ -101,26 +117,26 @@ async function runScraper() {
             const meta = mkt[i] || { seguro_para_fb: true, frase: "¡Precio especial de liquidación! ⚡", hashtags: "#Ofertas" };
 
             let linkAff = `${p.url}?matt_d2id=${process.env.ML_MATT_D2ID}&matt_event_ts=${Date.now()}`;
-            let linkShort = await acortarLink(linkAff);
+            let linkShort = await acortarLink(aff || linkAff);
 
-            // Insertamos el registro completo incluyendo la nueva imagen limpia
+            // Insertamos el registro completo con los precios reales capturados del HTML
             await supabase.from('ofertas').upsert({
                 producto: p.titulo,
-                precio_oferta: 0.0, // Mantiene la estructura base para procesamiento manual posterior
-                precio_original: 0.0,
+                precio_oferta: p.precioOferta,       // 📊 Ahora sí inyecta el número real
+                precio_original: p.precioOriginal,   // 📊 Ahora sí inyecta el número real
                 link_original: p.url,
                 link_afiliado: linkAff,
                 link_corto: linkShort,
                 frase_persuasiva: meta.frase,
                 hashtags: meta.hashtags,
-                imagen_url: p.img, // 💾 Se guarda la URL de alta resolución en la DB
+                imagen_url: p.img,
                 status: 'Aprobado',
                 fuente: 'Auto',
                 enviado: false,
                 fecha_mexico: new Date().toLocaleString("en-US", {timeZone: "America/Mexico_City"})
             }, { onConflict: 'link_original' });
 
-            console.log(`✅ [GUARDADO CON IMAGEN] ${p.titulo}`);
+            console.log(`✅ [GUARDADO COMPLETO] $${p.precioOferta} - ${p.titulo}`);
         }
 
         console.log("🏁 [SCRAPER] Ciclo automático completado.");
