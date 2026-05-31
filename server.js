@@ -226,26 +226,50 @@ app.post('/api/manual', candado, async (req, res) => {
     res.send(UI_LAYOUT(content, SCRIPT_REDIRECCION));
 });
 
-app.get('/api/buscar', (req, res) => { 
-    runScraper(); 
+// =========================================================================
+// 🔍 ENDPOINT: AUTO SEARCH (Sincronizado con await para actualizar estadísticas)
+// =========================================================================
+app.get('/api/buscar', candado, async (req, res) => { 
+    console.log("⚡ [HTTP] Petición recibida en /api/buscar. Ejecutando scraping...");
+    
+    try {
+        // Obligamos al servidor a esperar que el scraper termine (DB + IA)
+        await runScraper(); 
+        console.log("⚡ [HTTP] Scraping finalizado con éxito.");
+    } catch (error) {
+        console.error("❌ Error en la ruta /api/buscar:", error.message);
+    }
+
     const content = `
         <div class="text-center py-4">
-            <h2 class="text-success mb-3">🔍 Auto Search Iniciado</h2>
-            <p class="text-secondary">El bot está buscando ofertas en segundo plano...</p>
-            <p class="text-secondary small">Regresando automáticamente en <span id="contador" class="text-genesys fw-bold">3</span> segundos...</p>
+            <h2 class="text-success mb-3">🔍 Auto Search Finalizado</h2>
+            <p class="text-secondary">El bot ha leído tus categorías de Supabase y actualizado la cola de ofertas con éxito.</p>
+            <p class="text-secondary small">Regresando al panel en <span id="contador" class="text-genesys fw-bold">3</span> segundos...</p>
             <a href="/" class="btn btn-genesys px-5 mt-1">⬅ VOLVER YA</a>
         </div>
     `;
     res.send(UI_LAYOUT(content, SCRIPT_REDIRECCION));
 });
 
-app.get('/api/publicar', (req, res) => { 
-    enviarOfertasAprobadas(); 
+// =========================================================================
+// 📤 ENDPOINT: PUBLICAR YA (Sincronizado con await para actualizar estadísticas)
+// =========================================================================
+app.get('/api/publicar', candado, async (req, res) => { 
+    console.log("⚡ [HTTP] Petición recibida en /api/publicar. Despachando cola...");
+    
+    try {
+        // Esperamos a que termine de enviar todo a Telegram y Facebook antes de continuar
+        await enviarOfertasAprobadas(); 
+        console.log("⚡ [HTTP] Publicación en redes sociales completada.");
+    } catch (error) {
+        console.error("❌ Error en la ruta /api/publicar:", error.message);
+    }
+    
     const content = `
         <div class="text-center py-4">
-            <h2 class="text-info mb-3">📤 Publicación Iniciada</h2>
-            <p class="text-secondary">Despachando productos hacia tus canales...</p>
-            <p class="text-secondary small">Regresando automáticamente en <span id="contador" class="text-genesys fw-bold">3</span> segundos...</p>
+            <h2 class="text-info mb-3">📤 Publicación Completada</h2>
+            <p class="text-secondary">Todos los artículos aprobados han sido enviados a tus canales de Telegram y Facebook.</p>
+            <p class="text-secondary small">Regresando al panel en <span id="contador" class="text-genesys fw-bold">3</span> segundos...</p>
             <a href="/" class="btn btn-genesys px-5 mt-1">⬅ VOLVER YA</a>
         </div>
     `;
