@@ -229,13 +229,15 @@ app.post('/api/manual', candado, async (req, res) => {
 // =========================================================================
 // 🔍 ENDPOINT: AUTO SEARCH (Sincronizado con await para actualizar estadísticas)
 // =========================================================================
-app.get('/api/buscar', candado, async (req, res) => { 
-    console.log("⚡ [HTTP] Petición recibida en /api/buscar. Ejecutando scraping...");
+// =========================================================================
+// 🔍 ENDPOINT: AUTO SEARCH (Liberado de contraseña para Cron-Job)
+// =========================================================================
+app.get('/api/buscar', async (req, res) => { // 👈 Quitamos 'candado' aquí
+    console.log("⚡ [CRON-JOB] Petición externa recibida en /api/buscar. Iniciando scraper...");
     
     try {
-        // Obligamos al servidor a esperar que el scraper termine (DB + IA)
         await runScraper(); 
-        console.log("⚡ [HTTP] Scraping finalizado con éxito.");
+        console.log("⚡ [CRON-JOB] Scraping finalizado con éxito.");
     } catch (error) {
         console.error("❌ Error en la ruta /api/buscar:", error.message);
     }
@@ -254,13 +256,15 @@ app.get('/api/buscar', candado, async (req, res) => {
 // =========================================================================
 // 📤 ENDPOINT: PUBLICAR YA (Sincronizado con await para actualizar estadísticas)
 // =========================================================================
-app.get('/api/publicar', candado, async (req, res) => { 
-    console.log("⚡ [HTTP] Petición recibida en /api/publicar. Despachando cola...");
+// =========================================================================
+// 📤 ENDPOINT: PUBLICAR YA (Liberado de contraseña para Cron-Job)
+// =========================================================================
+app.get('/api/publicar', async (req, res) => { // 👈 Quitamos 'candado' aquí
+    console.log("⚡ [CRON-JOB] Petición externa recibida en /api/publicar. Despachando cola...");
     
     try {
-        // Esperamos a que termine de enviar todo a Telegram y Facebook antes de continuar
         await enviarOfertasAprobadas(); 
-        console.log("⚡ [HTTP] Publicación en redes sociales completada.");
+        console.log("⚡ [CRON-JOB] Publicación en redes sociales completada.");
     } catch (error) {
         console.error("❌ Error en la ruta /api/publicar:", error.message);
     }
